@@ -1,0 +1,60 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.example'
+version = '1.0.0'
+sourceCompatibility = '11'
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    testImplementation('com.amazonaws:aws-java-sdk-s3:1.12.261') {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+
+    implementation 'args4j:args4j:2.37'
+    implementation 'ch.qos.logback:logback-classic:1.5.6'
+    implementation 'javax.xml.bind:jaxb-api:2.3.1'
+
+    testImplementation 'junit:junit:4.13.2' // Required for S3ProxyRule
+    implementation 'junit:junit:4.13.2' // Required for S3ProxyRule
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3' // Required for S3ProxyExtension
+    implementation 'org.junit.jupiter:junit-jupiter:5.10.3' // Required for S3ProxyExtension
+
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.17.2'
+    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.8.6'
+    implementation 'com.google.code.findbugs:jsr305:3.0.2'
+    implementation 'commons-fileupload:commons-fileupload:1.5'
+    implementation 'commons-codec:commons-codec:1.15'
+
+    implementation "org.apache.jclouds:jclouds-allblobstore:" + jcloudsVersion
+    implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
+    implementation "org.apache.jclouds.driver:jclouds-slf4j:" + jcloudsVersion
+
+    testImplementation 'org.assertj:assertj-core:3.26.3' // we need to use the same version as in jclouds because we pull in their tests
+
+    implementation "org.eclipse.jetty:jetty-servlet:" + jettyVersion
+    implementation "org.slf4j:slf4j-api:" + slf4jVersion
+    testImplementation "org.slf4j:jcl-over-slf4j:" + slf4jVersion
+
+    // https://mvnrepository.com/artifact/io.pravega/pravega-common
+    implementation group: 'io.pravega', name: 'pravega-common', version: '0.13.0'
+
+    // Test JAR dependencies
+    testImplementation "org.apache.jclouds:jclouds-blobstore:" + jcloudsVersion + ":tests@jar"
+    testImplementation "org.apache.jclouds.api:s3:" + jcloudsVersion + ":tests@jar"
+    testImplementation "org.apache.jclouds:jclouds-core:" + jcloudsVersion + ":tests@jar"
+
+    testImplementation 'org.testng:testng:7.5.1'
+    implementation 'javax.annotation:javax.annotation-api:1.3.2'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+
