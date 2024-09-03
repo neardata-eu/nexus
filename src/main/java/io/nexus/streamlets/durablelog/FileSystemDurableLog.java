@@ -30,7 +30,7 @@ public class FileSystemDurableLog implements DurableLog {
     }
 
     @Override
-    public boolean closeLogObject(String logObjectName) {
-        return false;
+    public void closeLogObject(String logObjectName) throws IOException {
+        this.logObjectWriters.get(logObjectName).close();
     }
 }

@@ -2,34 +2,50 @@ package io.nexus.streamlets;
 
 import io.nexus.streamlets.durablelog.DurableLog;
 import io.nexus.streamlets.durablelog.FileSystemDurableLog;
-import io.nexus.streamlets.utils.DynamicInputStream;
+import io.nexus.streamlets.functions.NoOpStreamlet;
+import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
+import io.pravega.common.concurrent.Futures;
 import io.pravega.common.concurrent.MultiKeySequentialProcessor;
-import io.pravega.common.io.ByteBufferOutputStream;
 import io.pravega.common.util.ByteArraySegment;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.*;
-import org.jclouds.blobstore.options.*;
+import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
+import org.jclouds.blobstore.domain.BlobBuilder;
+import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
+import org.jclouds.blobstore.domain.PageSet;
+import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.CopyOptions;
+import org.jclouds.blobstore.options.CreateContainerOptions;
+import org.jclouds.blobstore.options.GetOptions;
+import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.jclouds.domain.Location;
 import org.jclouds.io.Payload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 
 public class StreamletsMiddleware extends ForwardingBlobStore {
     private static final Logger logger = LoggerFactory.getLogger(StreamletsMiddleware.class);
     private final ScheduledExecutorService streamletExecutor;
     private final MultiKeySequentialProcessor<String> taskScheduler;
     private final DurableLog durableLog;
+    private final Map<String, BiConsumer<ByteBufferPipelineStream, ByteBufferPipelineStream>> functionSupplierMap;
 
     public StreamletsMiddleware(BlobStore blobStore) {
         super(blobStore);
@@ -38,6 +54,10 @@ public class StreamletsMiddleware extends ForwardingBlobStore {
         this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(10, "streamlet-threadpool");
         this.taskScheduler = new MultiKeySequentialProcessor<>(streamletExecutor);
         this.durableLog = new FileSystemDurableLog();
+        this.functionSupplierMap = new HashMap<>();
+        this.functionSupplierMap.put("noop-1", new NoOpStreamlet("noop-1")::processPut);
+        this.functionSupplierMap.put("noop-2", new NoOpStreamlet("noop-2")::processPut);
+        this.functionSupplierMap.put("noop-3", new NoOpStreamlet("noop-3")::processPut);
     }
 
     @Override
@@ -155,38 +175,50 @@ public class StreamletsMiddleware extends ForwardingBlobStore {
         try {
             // TODO: Get the partition name correctly.
             String streamPartition = "/tmp/test.txt";
+            // TODO: Get this from metadata.
+            List<String> streamletPipelineFromPolicy = streamletPipelineFromPolicyMetadata();
 
             // Create the resources for storing the input PUT request contents.
-            logger.info("Creating durable log object.");
-            durableLog.createLogObject(streamPartition);
+            initializeDurableLogObject(streamPartition);
 
-            // Instantiate the dynamic input stream that allows tasks to read contents while still writing.
+            // Instantiate the input stream for the request contents.
             logger.info("Submitting processing pipeline task for stream partition {}.", streamPartition);
-            DynamicInputStream dynamicInputStream = new DynamicInputStream();
-            streamletPipelineResult = this.taskScheduler.add(Collections.singletonList(streamPartition),
-                    () -> CompletableFuture.supplyAsync(() -> functionOne(dynamicInputStream), this.streamletExecutor));
+            ByteBufferPipelineStream requestInputStream = new ByteBufferPipelineStream();
+
+            // Build the execution pipeline of streamlets based on the policy defined.
+            streamletPipelineResult = buildStreamletExecutionPipeline(requestInputStream, streamletPipelineFromPolicy,
+                    streamPartition);
 
             // In parallel, the main thread (IO thread pool) can write the storage operation to the log, whereas
             // we schedule the execution of the function pipeline in the streamlet pool.
             InputStream payload = blob.getPayload().openStream();
-            byte[] objectBytes = new byte[10];
+
             int totalBytesRead = 0;
-            while (totalBytesRead < payload.available()) {
-                int bytesRead = payload.read(objectBytes, 0, objectBytes.length);
+            long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
+            int iniByte = 0;
+            int endByte = 0;
+            int iteration = 0;
+            while (totalBytesRead < contentLength) {
+                byte[] objectBytes = new byte[8192];
+                int bytesRead = payload.read(objectBytes);
                 logger.debug("Reading {} bytes from the request input stream.", bytesRead);
                 if (bytesRead < 0) {
                     // End of stream/
                     break;
                 }
+                ByteArraySegment readData = new ByteArraySegment(objectBytes, 0, bytesRead);
                 // Append the new read data to the input stream of the processing pipeline for concurrent processing.
-                dynamicInputStream.addSegment(new ByteArraySegment(objectBytes, 0, bytesRead));
+                requestInputStream.addSegment(readData);
                 // Write the new read data to log service for failure recovery.
-                this.durableLog.writeToLogObject(streamPartition, objectBytes, bytesRead);
+                this.durableLog.writeToLogObject(streamPartition, readData.array(), bytesRead);
                 totalBytesRead += bytesRead;
+                iniByte = endByte;
+                endByte += bytesRead;
+                iteration++;
             }
             this.durableLog.closeLogObject(streamPartition);
             // Important: we need to close the dynamicInputStream, so the streamlets know we completed reading.
-            dynamicInputStream.close();
+            requestInputStream.close();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -198,8 +230,46 @@ public class StreamletsMiddleware extends ForwardingBlobStore {
         return super.putBlob(containerName, blob, putOptions);
     }
 
-    private InputStream functionOne(DynamicInputStream input) {
+    private CompletableFuture<InputStream> buildStreamletExecutionPipeline(ByteBufferPipelineStream requestInputStream,
+                                                                           List<String> streamletPipelineFromPolicy,
+                                                                           String streamPartition) {
+        // Start with the initial input wrapped in a CompletableFuture
+        List<Map.Entry<ByteBufferPipelineStream, ByteBufferPipelineStream>> pipelineStreams = new ArrayList<>();
+        Map.Entry<ByteBufferPipelineStream, ByteBufferPipelineStream> streamTuple =
+                new AbstractMap.SimpleEntry<>(requestInputStream, new ByteBufferPipelineStream());
+        for (String s : streamletPipelineFromPolicy) {
+            pipelineStreams.add(streamTuple);
+            streamTuple = new AbstractMap.SimpleEntry<>(streamTuple.getValue(), new ByteBufferPipelineStream());
+        }
 
+        List<CompletableFuture<Void>> pipeline = new ArrayList<>();
+        int index = 0;
+        AtomicReference<ByteBufferPipelineStream> resultStream = new AtomicReference<>();
+        for (String s : streamletPipelineFromPolicy) {
+            ByteBufferPipelineStream input = pipelineStreams.get(index).getKey();
+            ByteBufferPipelineStream output = pipelineStreams.get(index).getValue();
+            index++;
+            BiConsumer<ByteBufferPipelineStream, ByteBufferPipelineStream> streamlet = this.functionSupplierMap.get(s);
+            pipeline.add(CompletableFuture.runAsync(() -> streamlet.accept(input, output), this.streamletExecutor));
+            resultStream.set(output);
+        }
+        CompletableFuture<Void> combinedPipeline = Futures.allOf(pipeline);
+        return this.taskScheduler.add(Collections.singletonList(streamPartition),
+                () -> combinedPipeline.thenApply(v -> resultStream.get()));
+    }
+
+    // TODO: Do this for real
+    private List<String> streamletPipelineFromPolicyMetadata() {
+        List<String> streamletPipelineFromPolicy = new ArrayList<>();
+        streamletPipelineFromPolicy.add("noop-1");
+        streamletPipelineFromPolicy.add("noop-2");
+        streamletPipelineFromPolicy.add("noop-3");
+        return streamletPipelineFromPolicy;
+    }
+
+    private void initializeDurableLogObject(String streamPartition) {
+        logger.info("Creating durable log object.");
+        this.durableLog.createLogObject(streamPartition);
     }
 
     @Override
