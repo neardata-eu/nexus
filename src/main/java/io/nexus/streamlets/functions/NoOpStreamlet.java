@@ -1,18 +1,14 @@
 package io.nexus.streamlets.functions;
 
-import io.nexus.streamlets.Streamlet;
+import io.nexus.streamlets.TransformerStreamlet;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
-import io.nexus.streamlets.utils.HashUtils;
-import io.pravega.common.io.ByteBufferOutputStream;
 import io.pravega.common.util.ByteArraySegment;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Formatter;
 
-public class NoOpStreamlet implements Streamlet {
+public class NoOpStreamlet implements TransformerStreamlet {
 
     private final String name;
     private MessageDigest md;
@@ -27,7 +23,7 @@ public class NoOpStreamlet implements Streamlet {
     }
 
     @Override
-    public void processPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
+    public void doTransform(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
         System.err.println(Thread.currentThread() + " -> STREAMLET " + name + " RUNNING FUTURE ");
         int totalBytesRead = 0;
 

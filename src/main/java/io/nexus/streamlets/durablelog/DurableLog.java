@@ -1,10 +1,12 @@
 package io.nexus.streamlets.durablelog;
 
+import io.nexus.streamlets.StreamPartitionPojo;
+
 import java.io.IOException;
 
 public interface DurableLog {
 
-    public boolean createLogObject(String logObjectName);
+    public boolean createLogObject(StreamPartitionPojo streamPartitionPojo);
 
     public void writeToLogObject(String logObjectName, byte[] data, int bytesRead);
 

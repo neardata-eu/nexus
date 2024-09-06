@@ -1,5 +1,6 @@
 package io.nexus.streamlets.utils;
 
+import io.netty.buffer.ByteBuf;
 import io.pravega.common.util.ByteArraySegment;
 
 import java.io.IOException;

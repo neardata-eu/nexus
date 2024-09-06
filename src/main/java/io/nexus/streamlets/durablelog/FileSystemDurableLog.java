@@ -1,19 +1,25 @@
 package io.nexus.streamlets.durablelog;
 
+import io.nexus.streamlets.StreamPartitionPojo;
+
 import java.io.*;
 import java.util.HashMap;
 import java.util.Map;
 
 public class FileSystemDurableLog implements DurableLog {
 
+    private final static String STORAGE_DIR = "/tmp/";
     private final Map<String, OutputStream> logObjectWriters = new HashMap<>();
 
     @Override
-    public boolean createLogObject(String logObjectName) {
-        File file = new File(logObjectName);
+    public boolean createLogObject(StreamPartitionPojo streamPartitionPojo) {
         try {
-            boolean created = file.createNewFile();
-            this.logObjectWriters.put(logObjectName, new BufferedOutputStream(new FileOutputStream(logObjectName)));
+            String partitionUriInStorage = STORAGE_DIR + streamPartitionPojo.getScopedPartitionUri();
+            File file = new File(partitionUriInStorage);
+            boolean created = file.mkdirs();
+            file = new File(partitionUriInStorage + streamPartitionPojo.getObject());
+            created |= file.createNewFile();
+            this.logObjectWriters.put(streamPartitionPojo.getScopedObjectName(), new BufferedOutputStream(new FileOutputStream(file)));
             return created;
         } catch (IOException e) {
             throw new RuntimeException(e);

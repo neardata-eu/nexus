@@ -1,7 +1,7 @@
 package io.nexus;
 
 import io.nexus.s3proxy.S3Proxy;
-import io.nexus.streamlets.StreamletsMiddleware;
+import io.nexus.streamlets.StreamletsInterception;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
@@ -21,7 +21,7 @@ public class Main {
                 .overrides(properties)
                 .build(BlobStoreContext.class);
 
-        StreamletsMiddleware streamletsMiddleware =  new StreamletsMiddleware(context.getBlobStore());
+        StreamletsInterception streamletsMiddleware =  new StreamletsInterception(context.getBlobStore());
 
         S3Proxy s3Proxy = S3Proxy.builder()
                 .blobStore(streamletsMiddleware)
@@ -32,6 +32,5 @@ public class Main {
         while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
             Thread.sleep(1);
         }
-
     }
 }
