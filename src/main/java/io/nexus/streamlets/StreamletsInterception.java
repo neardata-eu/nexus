@@ -5,6 +5,7 @@ import io.netty.buffer.Unpooled;
 import io.nexus.streamlets.durablelog.DurableLog;
 import io.nexus.streamlets.durablelog.FileSystemDurableLog;
 import io.nexus.streamlets.functions.NoOpStreamlet;
+import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import io.pravega.common.concurrent.Futures;
@@ -41,10 +42,11 @@ import java.util.concurrent.ExecutorService;
 public class StreamletsInterception extends ForwardingBlobStore {
 
     private static final Logger logger = LoggerFactory.getLogger(StreamletsExecution.class);
-    private final StreamletsExecution streamletsExecution = new StreamletsExecution();
+    private final StreamletsExecution streamletsExecution;
 
-    public StreamletsInterception(BlobStore blobStore) {
+    public StreamletsInterception(BlobStore blobStore, MetadataService metadataService) {
         super(blobStore);
+        this.streamletsExecution = new StreamletsExecution(metadataService);
     }
 
     @Override

@@ -3,6 +3,8 @@ package io.nexus.streamlets;
 import io.nexus.streamlets.durablelog.DurableLog;
 import io.nexus.streamlets.durablelog.FileSystemDurableLog;
 import io.nexus.streamlets.functions.NoOpStreamlet;
+import io.nexus.streamlets.metadata.MetadataService;
+import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import io.pravega.common.concurrent.Futures;
@@ -35,13 +37,15 @@ public class StreamletsExecution {
     private final ScheduledExecutorService streamletExecutor;
     private final MultiKeySequentialProcessor<String> taskScheduler;
     private final DurableLog durableLog;
+    private final MetadataService metadataService;
     private final Map<String, BiConsumer<ByteBufferPipelineStream, ByteBufferPipelineStream>> functionSupplierMap;
 
-    public StreamletsExecution() {
+    public StreamletsExecution(MetadataService metadataService) {
         // Create a separate threadpool for executing streamlets.
         this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(10, "streamlet-threadpool");
         this.taskScheduler = new MultiKeySequentialProcessor<>(streamletExecutor);
         this.durableLog = new FileSystemDurableLog();
+        this.metadataService = metadataService;
         this.functionSupplierMap = new HashMap<>();
         this.functionSupplierMap.put("noop-1", new NoOpStreamlet("noop-1")::doTransform);
         this.functionSupplierMap.put("noop-2", new NoOpStreamlet("noop-2")::doTransform);
@@ -53,6 +57,11 @@ public class StreamletsExecution {
     public void interceptAndProcessPut(String containerName, Blob blob, PutOptions putOptions) {
         // 1. TODO: Validate credentials of incoming request to make sure it is a valid one.
         // 2. TODO: Check if there is any policy to apply to this storage operation.
+        try {
+            Policy policy = metadataService.getPolicy("policy123");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        };
         // 3. TODO: If there is no policy, just forward the storage to the next swarmlet or final destination.
         final long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
         if (contentLength > 0) {
