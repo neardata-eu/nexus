@@ -8,18 +8,19 @@ import java.util.Map;
 
 public class FileSystemDurableLog implements DurableLog {
 
-    private final static String STORAGE_DIR = "/tmp/";
+    private final static String STORAGE_DIR = "/tmp/nexus-durablelog/";
     private final Map<String, OutputStream> logObjectWriters = new HashMap<>();
 
     @Override
     public boolean createLogObject(StreamPartitionPojo streamPartitionPojo) {
         try {
-            String partitionUriInStorage = STORAGE_DIR + streamPartitionPojo.getScopedPartitionUri();
-            File file = new File(partitionUriInStorage);
+            String partitionDirInStorage = STORAGE_DIR + streamPartitionPojo.getScopedPartitionUri();
+            File file = new File(partitionDirInStorage);
             boolean created = file.mkdirs();
-            file = new File(partitionUriInStorage + streamPartitionPojo.getObject());
+            String partitionFileInStorage = partitionDirInStorage + File.separator + streamPartitionPojo.getObject();
+            file = new File(partitionFileInStorage);
             created |= file.createNewFile();
-            this.logObjectWriters.put(streamPartitionPojo.getScopedObjectName(), new BufferedOutputStream(new FileOutputStream(file)));
+            this.logObjectWriters.put(partitionFileInStorage, new BufferedOutputStream(new FileOutputStream(file)));
             return created;
         } catch (IOException e) {
             throw new RuntimeException(e);

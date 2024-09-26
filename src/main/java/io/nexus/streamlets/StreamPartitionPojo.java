@@ -8,6 +8,8 @@ public class StreamPartitionPojo {
 
     public final static Pattern KAFKA_PARTITION_OBJECT_PATTERN =
             Pattern.compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/(\\d+)/(\\d{20}-[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
+    public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN =
+            Pattern.compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
 
     public final String container;
     public final String scope;
@@ -35,11 +37,70 @@ public class StreamPartitionPojo {
                 '}';
     }
 
-    public static StreamPartitionPojo buildStreamPartitionPojoFromKafkaRequestPath(String fullyQualifiedKafkaRequestPath) {
+    public static StreamPartitionPojo getStreamPartitionPojo(String objectPath, String streamingSystem, String container) {
+        switch (streamingSystem) {
+            case "kafka":
+                return buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
+            case "pulsar":
+                return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
+            case "pravega":
+                return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
+            default:
+                // This is useful for testing without having to run a streaming system.
+                return buildDefaultStreamPartitionPojoFromRequestPath(objectPath, container);
+        }
+    }
+
+    public static StreamPartitionPojo buildStreamPartitionPojoFromKafkaRequestPath(String fullyQualifiedKafkaRequestPath,
+                                                                                   String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedKafkaRequestPath);
         if (matcher.matches()) {
             StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1),
                     matcher.group(2), matcher.group(3), matcher.group(4));
+            System.err.println(pojo);
+            return pojo;
+        }
+
+        // The object doesn't match the pattern.
+        return null;
+    }
+
+    // TODO: Do this for real
+    public static StreamPartitionPojo buildStreamPartitionPojoFromPulsarRequestPath(String fullyQualifiedPulsarRequestPath,
+                                                                                    String container) {
+        Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPulsarRequestPath);
+        if (matcher.matches()) {
+            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1),
+                    matcher.group(2), matcher.group(3), matcher.group(4));
+            System.err.println(pojo);
+            return pojo;
+        }
+
+        // The object doesn't match the pattern.
+        return null;
+    }
+
+    // TODO: Do this for real
+    public static StreamPartitionPojo buildStreamPartitionPojoFromPravegaRequestPath(String fullyQualifiedPravegaRequestPath,
+                                                                                     String container) {
+        Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPravegaRequestPath);
+        if (matcher.matches()) {
+            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1),
+                    matcher.group(2), matcher.group(3), matcher.group(4));
+            System.err.println(pojo);
+            return pojo;
+        }
+
+        // The object doesn't match the pattern.
+        return null;
+    }
+
+    public static StreamPartitionPojo buildDefaultStreamPartitionPojoFromRequestPath(String fullyQualifiedRequestPath,
+                                                                                     String container) {
+        Matcher matcher = DEFAULT_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedRequestPath);
+        if (matcher.matches()) {
+            StreamPartitionPojo pojo = new StreamPartitionPojo(container, container, matcher.group(1), matcher.group(2),
+                    matcher.group(3));
             System.err.println(pojo);
             return pojo;
         }

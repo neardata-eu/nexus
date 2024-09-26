@@ -1,8 +1,7 @@
 package io.nexus;
 
 import io.nexus.s3proxy.S3Proxy;
-import io.nexus.streamlets.StreamletsInterception;
-import io.nexus.streamlets.metadata.MetadataController;
+import io.nexus.streamlets.StreamletsInterceptor;
 import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.metadata.MetadataServiceRunner;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
@@ -11,12 +10,10 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
-import org.springframework.context.ConfigurableApplicationContext;
 import redis.clients.jedis.Jedis;
 
 import java.net.URI;
 import java.util.Properties;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
 
@@ -51,7 +48,7 @@ public class Main {
                 .build(BlobStoreContext.class);
         // TODO: Fix this with a proper factory and configuration
         MetadataService metadataService = new MetadataService(new Jedis("localhost", 6379));
-        StreamletsInterception streamletsMiddleware =  new StreamletsInterception(context.getBlobStore(),
+        StreamletsInterceptor streamletsMiddleware =  new StreamletsInterceptor(context.getBlobStore(),
                 metadataService);
         S3Proxy s3Proxy = S3Proxy.builder()
                 .blobStore(streamletsMiddleware)

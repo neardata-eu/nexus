@@ -1,19 +1,20 @@
 package io.nexus.streamlets.metadata;
 
-import io.nexus.streamlets.StreamletsExecution;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Set;
+
 @Service
 public class MetadataService {
     private static final Logger logger = LoggerFactory.getLogger(MetadataService.class);
 
-    private static final String METADATA_POLICY_PREFIX = "policy:";
-    private static final String METADATA_STREAMLET_PREFIX = "streamletdescriptor:";
-    private static final String METADATA_SWARMLET_PREFIX = "swarmletdescriptor:";
+    public static final String METADATA_POLICY_PREFIX = "policy:";
+    public static final String METADATA_STREAMLET_PREFIX = "streamletdescriptor:";
+    public static final String METADATA_SWARMLET_PREFIX = "swarmletdescriptor:";
 
     private final Jedis jedis;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -32,10 +33,32 @@ public class MetadataService {
     }
 
     // Read Policy
-    public Policy getPolicy(String id) throws Exception {
-        String key = METADATA_POLICY_PREFIX + id;
+    public Policy getPolicy(String key) throws Exception {
         String json = this.jedis.get(key);
         return this.objectMapper.readValue(json, Policy.class);
+    }
+
+    public Policy getPolicyByScope(String scope) throws Exception {
+        // TODO: This can be done more efficiently.
+        Set<String> keys = this.jedis.keys(METADATA_POLICY_PREFIX + "*");
+        for (String key: keys) {
+            Policy policy = getPolicy(key);
+            if (policy.getScope().equals(scope)) {
+                return policy;
+            }
+        }
+        return null;
+    }
+
+    public Policy getPolicyByStream(String scope, String stream) throws Exception {
+        Set<String> keys = this.jedis.keys(METADATA_POLICY_PREFIX + "*");
+        for (String key: keys) {
+            Policy policy = getPolicy(key);
+            if (policy.getScope().equals(scope) && policy.getStream().equals(stream)) {
+                return policy;
+            }
+        }
+        return null;
     }
 
     // Delete Policy

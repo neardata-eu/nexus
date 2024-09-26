@@ -71,4 +71,16 @@ public class Policy {
     public void setStorage(List<String> storage) {
         this.storage = storage;
     }
+
+    @Override
+    public String toString() {
+        return "Policy{" +
+                "id='" + id + '\'' +
+                ", system='" + system + '\'' +
+                ", scope='" + scope + '\'' +
+                ", stream='" + stream + '\'' +
+                ", pipeline=" + pipeline +
+                ", storage=" + storage +
+                '}';
+    }
 }

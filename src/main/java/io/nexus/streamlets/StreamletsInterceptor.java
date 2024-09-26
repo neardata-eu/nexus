@@ -1,16 +1,6 @@
 package io.nexus.streamlets;
 
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.Unpooled;
-import io.nexus.streamlets.durablelog.DurableLog;
-import io.nexus.streamlets.durablelog.FileSystemDurableLog;
-import io.nexus.streamlets.functions.NoOpStreamlet;
 import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.utils.ByteBufferPipelineStream;
-import io.pravega.common.concurrent.ExecutorServiceHelpers;
-import io.pravega.common.concurrent.Futures;
-import io.pravega.common.concurrent.MultiKeySequentialProcessor;
-import io.pravega.common.util.ByteArraySegment;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -39,14 +29,17 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
-public class StreamletsInterception extends ForwardingBlobStore {
+/**
+ * S3 Proxy middleware that intercepts storage requests and injects them into {@link StreamletsExecutor}.
+ */
+public class StreamletsInterceptor extends ForwardingBlobStore {
 
-    private static final Logger logger = LoggerFactory.getLogger(StreamletsExecution.class);
-    private final StreamletsExecution streamletsExecution;
+    private static final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
+    private final StreamletsExecutor streamletsExecution;
 
-    public StreamletsInterception(BlobStore blobStore, MetadataService metadataService) {
+    public StreamletsInterceptor(BlobStore blobStore, MetadataService metadataService) {
         super(blobStore);
-        this.streamletsExecution = new StreamletsExecution(metadataService);
+        this.streamletsExecution = new StreamletsExecutor(metadataService);
     }
 
     @Override
