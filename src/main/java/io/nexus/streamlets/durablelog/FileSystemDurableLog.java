@@ -20,7 +20,8 @@ public class FileSystemDurableLog implements DurableLog {
             String partitionFileInStorage = partitionDirInStorage + File.separator + streamPartitionPojo.getObject();
             file = new File(partitionFileInStorage);
             created |= file.createNewFile();
-            this.logObjectWriters.put(partitionFileInStorage, new BufferedOutputStream(new FileOutputStream(file)));
+            String fileWriteKey = streamPartitionPojo.getScopedPartitionUri() + File.separator + streamPartitionPojo.getObject();
+            this.logObjectWriters.put(fileWriteKey, new BufferedOutputStream(new FileOutputStream(file)));
             return created;
         } catch (IOException e) {
             throw new RuntimeException(e);
