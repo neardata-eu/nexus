@@ -3,8 +3,6 @@ package io.nexus.streamlets.utils;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.MultipartUpload;
 
-import java.io.File;
-
 /**
  *  We assume that the name structure of chunks of tiered stream data is of
  *  the form scope/streamName/object.xxx

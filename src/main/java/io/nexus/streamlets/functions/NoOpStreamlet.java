@@ -23,6 +23,17 @@ public class NoOpStreamlet implements TransformerStreamlet {
     }
 
     @Override
+    public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output){
+        doTransform(input, output);
+    }
+
+    @Override
+    public void doGet(ByteBufferPipelineStream input, ByteBufferPipelineStream output){
+        //TODO: placeholder function
+        doTransform(input, output);
+    }
+
+    @Override
     public void doTransform(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
         System.err.println(Thread.currentThread() + " -> STREAMLET " + name + " RUNNING FUTURE ");
         int totalBytesRead = 0;
@@ -50,5 +61,6 @@ public class NoOpStreamlet implements TransformerStreamlet {
             throw new RuntimeException(e);
         }
     }
+
 
 }

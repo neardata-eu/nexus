@@ -22,7 +22,6 @@ import org.jclouds.domain.Location;
 import org.jclouds.io.Payload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.File;
 import java.io.InputStream;
 import java.util.List;
@@ -149,7 +148,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
-        this.streamletsExecution.interceptAndProcessPut(containerName, blob, putOptions);
+        this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
         // Reply to the client once the storage log storage completes, and forward the operation to the next stage.
         return super.putBlob(containerName, blob, putOptions);
     }
@@ -170,8 +169,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     }
 
     @Override
-    public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
-        return super.getBlob(containerName, blobName, getOptions);
+    public Blob getBlob(String containerName, String blobName, GetOptions getOptions) { 
+        Blob proxyBlob = super.getBlob(containerName, blobName, getOptions);
+        //Intercepting the blob
+        this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+        return proxyBlob;
     }
 
     @Override

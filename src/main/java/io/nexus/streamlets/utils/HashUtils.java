@@ -16,6 +16,7 @@ public class HashUtils {
         for (byte b : hash) {
             formatter.format("%02x", b);
         }
+        formatter.close();
         return formatter.toString();
     }
 }
