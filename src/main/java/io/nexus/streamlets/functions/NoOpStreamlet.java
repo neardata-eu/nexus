@@ -23,13 +23,13 @@ public class NoOpStreamlet implements TransformerStreamlet {
     }
 
     @Override
-    public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output){
+    public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
         doTransform(input, output);
     }
 
     @Override
-    public void doGet(ByteBufferPipelineStream input, ByteBufferPipelineStream output){
-        //TODO: placeholder function
+    public void doGet(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
+        // TODO: placeholder function
         doTransform(input, output);
     }
 
@@ -61,6 +61,5 @@ public class NoOpStreamlet implements TransformerStreamlet {
             throw new RuntimeException(e);
         }
     }
-
 
 }

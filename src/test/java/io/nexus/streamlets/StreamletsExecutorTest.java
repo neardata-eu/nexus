@@ -4,6 +4,9 @@ import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 import io.nexus.streamlets.utils.StreamNameUtils;
 import io.nexus.streamlets.metadata.Policy;
+import io.nexus.streamlets.metadata.StreamletDescriptor;
+import io.nexus.streamlets.metadata.StreamletDescriptor.ExecuteOn;
+import io.nexus.streamlets.metadata.StreamletDescriptor.ResourceUsage;
 import io.pravega.common.util.ByteArraySegment;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,7 +47,14 @@ public class StreamletsExecutorTest {
 
     // Mock Policy constants
     final String MOCK_POLICY_SYSTEM = "system";
-    final List<String> MOCK_POLICY_PIPELINE = new ArrayList<>(List.of("noop-1", "noop-2", "noop-3"));
+    final List<String> MOCK_POLICY_PIPELINE = new ArrayList<>(List.of("S1", "S2"));
+
+    // Mock StreamletDescriptor constants
+    final StreamletDescriptor MOCK_PUT_STREAMLET = new StreamletDescriptor("S1", ExecuteOn.PUT,
+            StreamletDescriptor.Type.TRANSFORMER, true, ResourceUsage.CPU, true);
+
+    final StreamletDescriptor MOCK_GET_STREAMLET = new StreamletDescriptor("S2", ExecuteOn.GET,
+            StreamletDescriptor.Type.TRANSFORMER, true, ResourceUsage.CPU, true);
 
     @BeforeEach
     void setUp() {
@@ -92,14 +103,66 @@ public class StreamletsExecutorTest {
     }
 
     @Test
-    void testPUTBlobProcessing() throws Exception {
-        // Setting up dependencies
-        buildMockDataForRequestInterception();
+    void testNoStreamletsToExecute() throws Exception {
+        // Mock valid scope, stream and policy
+        when(mockBlob.getMetadata().getName()).thenReturn(MOCK_BLOB_NAME);
+        when(metadataService.getPolicyByStream(MOCK_SCOPE_NAME, MOCK_STREAM_NAME)).thenReturn(mockPolicy);
+
+        // Mocking an empty policy pipeline
+        when(mockPolicy.getPipeline()).thenReturn(new ArrayList<>());
 
         // Invoking a PUT interception with the mocked blob
         streamletsExecutor.interceptAndProcessRequest(MOCK_CONTAINER_NAME, mockBlob, true);
 
-        // Verifying that setPayload with a stream argument is called exactly once
+        // Verify that it does not proceed with further processing
+        verify(mockBlobMetadata, never()).getContentMetadata();
+        verify(mockBlob, never()).setPayload(any(ByteBufferPipelineStream.class));
+    }
+
+    @Test
+    void testPUTInterceptionWithNoPUTStreamlets() throws Exception {
+        // Setting up dependencies
+        buildMockDataForRequestInterception();
+
+        // Filling the pipeline with GET streamlets
+        when(metadataService.getStreamletDescriptor(anyString())).thenReturn(MOCK_GET_STREAMLET);
+
+        // Invoking a PUT interception with the mocked blob
+        streamletsExecutor.interceptAndProcessRequest(MOCK_CONTAINER_NAME, mockBlob, true);
+
+        // Verifying that there is no further processing of streamlets
+        verify(mockBlobMetadata, never()).getContentMetadata();
+        verify(mockBlob, never()).setPayload(any(ByteBufferPipelineStream.class));
+    }
+
+    @Test
+    void testGETInterceptionWithNoGETStreamlets() throws Exception {
+        // Setting up dependencies
+        buildMockDataForRequestInterception();
+
+        // Filling the pipeline with PUT streamlets
+        when(metadataService.getStreamletDescriptor(anyString())).thenReturn(MOCK_PUT_STREAMLET);
+
+        // Invoking a GET interception with the mocked blob
+        streamletsExecutor.interceptAndProcessRequest(MOCK_CONTAINER_NAME, mockBlob, false);
+
+        // Verifying that there is no further processing of streamlets
+        verify(mockBlobMetadata, never()).getContentMetadata();
+        verify(mockBlob, never()).setPayload(any(ByteBufferPipelineStream.class));
+    }
+
+    @Test
+    void testPUTBlobProcessing() throws Exception {
+        // Setting up dependencies
+        buildMockDataForRequestInterception();
+
+        // Filling the pipeline with PUT streamlets
+        when(metadataService.getStreamletDescriptor(anyString())).thenReturn(MOCK_PUT_STREAMLET);
+
+        // Invoking a PUT interception with the mocked blob
+        streamletsExecutor.interceptAndProcessRequest(MOCK_CONTAINER_NAME, mockBlob, true);
+
+        // Verifying that setPayload with a stream argument is called EXACTLY once
         // after processing the blob content
         verify(mockBlob, Mockito.times(1)).setPayload(any(ByteBufferPipelineStream.class));
     }
@@ -109,15 +172,18 @@ public class StreamletsExecutorTest {
         // Setting up dependencies
         buildMockDataForRequestInterception();
 
+        // Filling the pipeline with GET streamlets
+        when(metadataService.getStreamletDescriptor(anyString())).thenReturn(MOCK_GET_STREAMLET);
+
         // Invoking a GET interception with the mocked blob
         streamletsExecutor.interceptAndProcessRequest(MOCK_CONTAINER_NAME, mockBlob, false);
 
-        // Verifying that setPayload with a stream argument is called exactly once
+        // Verifying that setPayload with a stream argument is called EXACTLY once
         // after processing the blob content
         verify(mockBlob, Mockito.times(1)).setPayload(any(ByteBufferPipelineStream.class));
     }
 
-    // Function to set up mocks for the dependencies needed to process the content
+    // Function to set up mocks for the dependencies needed to intercept
     public void buildMockDataForRequestInterception() throws Exception {
         // Mock valid scope, stream, and policy
         when(mockBlob.getMetadata().getName()).thenReturn(MOCK_BLOB_NAME);

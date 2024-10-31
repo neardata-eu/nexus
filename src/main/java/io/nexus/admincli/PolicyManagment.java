@@ -1,64 +1,65 @@
-package io.nexus;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.metadata.Policy;
-import redis.clients.jedis.Jedis;
+package io.nexus.admincli;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-public class AdminCLI {
+import redis.clients.jedis.Jedis;
 
-    private static final Jedis redis = new Jedis("localhost", 6379);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        boolean running = true;
+import io.nexus.streamlets.metadata.MetadataService;
+import io.nexus.streamlets.metadata.Policy;
 
-        while (running) {
-            System.out.println("\nPolicy Management CLI");
-            System.out.println("1. Create Policy");
-            System.out.println("2. Read Policy");
-            System.out.println("3. Update Policy");
-            System.out.println("4. Delete Policy");
-            System.out.println("5. List All Policies");
-            System.out.println("6. Exit");
+public class PolicyManagment {
+    private Scanner scanner;
+    private Jedis redis;
+    private ObjectMapper objectMapper;
 
-            int choice = scanner.nextInt();
-            scanner.nextLine(); // consume newline
-
-            switch (choice) {
-                case 1:
-                    createPolicy(scanner);
-                    break;
-                case 2:
-                    readPolicy(scanner);
-                    break;
-                case 3:
-                    updatePolicy(scanner);
-                    break;
-                case 4:
-                    deletePolicy(scanner);
-                    break;
-                case 5:
-                    listAllPolicies();
-                    break;
-                case 6:
-                    running = false;
-                    break;
-                default:
-                    System.out.println("Invalid choice. Try again.");
-            }
-        }
-
-        redis.close();
+    public PolicyManagment(Scanner scanner, Jedis redis, ObjectMapper objectMapper) {
+        this.scanner = scanner;
+        this.redis = redis;
+        this.objectMapper = objectMapper;
     }
 
-    private static void createPolicy(Scanner scanner) {
+    public void mainPrompt(Scanner scanner) {
+        System.out.println("\nPolicy Management");
+        System.out.println("1. Create Policy");
+        System.out.println("2. Read Policy");
+        System.out.println("3. Update Policy");
+        System.out.println("4. Delete Policy");
+        System.out.println("5. List All Policies");
+        System.out.println("6. Back");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice) {
+            case 1:
+                createPolicy();
+                break;
+            case 2:
+                readPolicy();
+                break;
+            case 3:
+                updatePolicy();
+                break;
+            case 4:
+                deletePolicy();
+                break;
+            case 5:
+                listAllPolicies();
+                break;
+            case 6:
+                EntryPoint.initialPrompt(scanner);
+                break;
+            default:
+                System.out.println("Invalid choice. Try again.");
+        }
+    }
+
+    private void createPolicy() {
         System.out.println("Creating a new Policy.");
 
         Policy policy = new Policy();
@@ -93,7 +94,7 @@ public class AdminCLI {
         }
     }
 
-    private static void readPolicy(Scanner scanner) {
+    private void readPolicy() {
         System.out.print("Enter Policy ID to read: ");
         String id = MetadataService.METADATA_POLICY_PREFIX + scanner.nextLine();
 
@@ -105,14 +106,14 @@ public class AdminCLI {
 
         try {
             Policy policy = objectMapper.readValue(policyJson, Policy.class);
-            System.out.println("Policy Details:");
+            System.out.println("Policy Details: ");
             System.out.println(policy);
         } catch (JsonProcessingException e) {
             System.out.println("Error reading policy: " + e.getMessage());
         }
     }
 
-    private static void updatePolicy(Scanner scanner) {
+    private void updatePolicy() {
         System.out.print("Enter Policy ID to update: ");
         String id = MetadataService.METADATA_POLICY_PREFIX + scanner.nextLine();
 
@@ -151,7 +152,7 @@ public class AdminCLI {
         }
     }
 
-    private static void deletePolicy(Scanner scanner) {
+    private void deletePolicy() {
         System.out.print("Enter Policy ID to delete: ");
         String id = scanner.nextLine();
         id = MetadataService.METADATA_POLICY_PREFIX + id;
@@ -163,7 +164,7 @@ public class AdminCLI {
         }
     }
 
-    private static void listAllPolicies() {
+    private void listAllPolicies() {
         System.out.println("Listing all policies:");
 
         for (String key : redis.keys(MetadataService.METADATA_POLICY_PREFIX + "*")) {
@@ -178,11 +179,16 @@ public class AdminCLI {
     }
 
     private static boolean validatePolicy(Policy policy) {
-        if (policy.getSystem() == null || policy.getSystem().isEmpty()) return false;
-        if (policy.getScope() == null || policy.getScope().isEmpty()) return false;
-        if (policy.getStream() == null || policy.getStream().isEmpty()) return false;
-        if (policy.getPipeline() == null || policy.getPipeline().isEmpty()) return false;
-        if (policy.getStorage() == null || policy.getStorage().isEmpty()) return false;
+        if (policy.getSystem() == null || policy.getSystem().isEmpty())
+            return false;
+        if (policy.getScope() == null || policy.getScope().isEmpty())
+            return false;
+        if (policy.getStream() == null || policy.getStream().isEmpty())
+            return false;
+        if (policy.getPipeline() == null || policy.getPipeline().isEmpty())
+            return false;
+        if (policy.getStorage() == null || policy.getStorage().isEmpty())
+            return false;
 
         return true;
     }
@@ -198,4 +204,3 @@ public class AdminCLI {
         return list;
     }
 }
-

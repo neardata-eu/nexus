@@ -5,6 +5,7 @@ import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 public interface Streamlet {
     // Each subclass should provide an implementation on how that subclass's
     // streamlets should operate/process data when there is a read or write
+
     // Invoked when there is a PUT/write request
     public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output);
 
