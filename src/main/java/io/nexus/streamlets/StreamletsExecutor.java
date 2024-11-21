@@ -46,7 +46,7 @@ import java.util.function.BiConsumer;
  */
 public class StreamletsExecutor {
 
-    private static final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
+    final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
     private final ScheduledExecutorService streamletExecutor;
     private final MultiKeySequentialProcessor<String> taskScheduler;
     private final DurableLog durableLog;
@@ -81,7 +81,7 @@ public class StreamletsExecutor {
         if (policy == null) {
             // If there is no policy, just forward the storage to the next swarmlet or final
             // destination.
-            logger.debug("No policy set for scope/stream of object {}", blob.getMetadata().getName());
+            logger.warn("No policy set for scope/stream of object {}", blob.getMetadata().getName());
             return;
         }
 
@@ -91,20 +91,27 @@ public class StreamletsExecutor {
         if (streamletsToBeExecuted.size() == 0) {
             // If there are no streamlets to be executed, forward the blob to the next
             // swarmlet or final destination.
-            logger.debug("No streamlets to be executed {}", blob.getMetadata().getName());
+            logger.warn("No streamlets to be executed {}", blob.getMetadata().getName());
             return;
         }
 
-        final long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
-        if (contentLength > 0) {
-            final Payload payload = blob.getPayload();
-            // TODO: Get the partition name correctly.
-            StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(
-                    blob.getMetadata().getName(), policy.getSystem(), containerName);
-            InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
-                    streamletsToBeExecuted,
-                    forwardStream);
-            blob.setPayload(processedContent);
+        try {
+            final long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
+            if (contentLength > 0) {
+                final Payload payload = blob.getPayload();
+                // TODO: Get the partition name correctly.
+                StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(
+                        blob.getMetadata().getName(), policy.getSystem(), containerName);
+                InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
+                        streamletsToBeExecuted,
+                        forwardStream);
+                blob.setPayload(processedContent);
+                logger.info("Successfully processed content based on {}", policy, blob.getMetadata().getName());
+                return;
+            }
+            logger.warn("No blob content to process");
+        } catch (Exception e) {
+            logger.warn("Error getting the current blob's metadata");
         }
     }
 
@@ -124,7 +131,7 @@ public class StreamletsExecutor {
         if (policy == null) {
             // If there is no policy, just forward the storage to the next swarmlet or final
             // destination.
-            logger.debug("No policy set for scope/stream of object {}", multipartUpload.blobName());
+            logger.warn("No policy set for scope/stream of object {}", multipartUpload.blobName());
             return payload;
         }
 
@@ -134,16 +141,32 @@ public class StreamletsExecutor {
         if (streamletsToBeExecuted.size() == 0) {
             // If there are no streamlets to be executed, forward the payload to the next
             // swarmlet or final destination.
-            logger.debug("No streamlets to be executed {}", multipartUpload.blobName());
+            logger.warn("No streamlets to be executed {}", multipartUpload.blobName());
             return payload;
         }
 
-        final long contentLength = payload.getContentMetadata().getContentLength();
-        StreamPartitionPojo streamPartition = StreamPartitionPojo.buildStreamPartitionPojoFromKafkaRequestPath(
-                multipartUpload.blobName(), multipartUpload.containerName());
-        InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
-                streamletsToBeExecuted, true);
-        return Payloads.newInputStreamPayload(processedContent);
+        try {
+            final long contentLength = payload.getContentMetadata().getContentLength();
+            if (contentLength > 0) {
+                StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(
+                        multipartUpload.blobName(), policy.getSystem(), multipartUpload.containerName());
+                InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
+                        streamletsToBeExecuted, true);
+                logger.info("Successfully processed content based on {}", policy);
+                // Manually setting the processed payload length due to JClouds metadata checks
+                // Later down the multipart upload flow
+                // TODO: Revisit this implementation when content length varies
+                Payload interceptedContent = Payloads.newInputStreamPayload(processedContent);
+                interceptedContent.getContentMetadata().setContentLength(contentLength);
+                return interceptedContent;
+            }
+            logger.warn("No multipart upload content to process");
+            return payload;
+
+        } catch (Exception e) {
+            logger.warn("Error getting the current payload's metadata");
+            return payload;
+        }
     }
 
     // end region
@@ -193,6 +216,7 @@ public class StreamletsExecutor {
 
             return streamletsToBeExecuted;
         } catch (Exception e) {
+            logger.debug("Error finding streamlet from policy pipeline");
             throw new RuntimeException(e);
         }
     }

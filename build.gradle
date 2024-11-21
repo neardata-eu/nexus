@@ -1,10 +1,21 @@
 plugins {
     id 'java'
+    //Using gradleup's shadow to build a single JAR file and reduce dependency conflicts
+    id 'com.gradleup.shadow' version '8.3.4'
+}
+
+shadowJar {
+    archiveFileName = 'nexus-java.jar'
+    manifest {
+        attributes(
+            'Main-Class': 'io.nexus.Main' 
+        )
+    }
 }
 
 group = 'com.example'
 version = '1.0.0'
-sourceCompatibility = '17'
+sourceCompatibility = '21'
 
 repositories {
     mavenCentral()
@@ -12,6 +23,7 @@ repositories {
 }
 
 dependencies {
+
     testImplementation('com.amazonaws:aws-java-sdk-s3:1.12.261') {
         exclude group: 'commons-logging', module: 'commons-logging'
     }
@@ -32,8 +44,10 @@ dependencies {
     implementation 'commons-codec:commons-codec:1.15'
 
     implementation "org.apache.jclouds:jclouds-allblobstore:" + jcloudsVersion
-    implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
     implementation "org.apache.jclouds.driver:jclouds-slf4j:" + jcloudsVersion
+    //For development builds and tests, uncomment this implementation to use Filesystem
+    //TODO: Figure out a way to include fliesystem to the list of providers/apis without manually adding it here
+    // implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
 
     testImplementation 'org.assertj:assertj-core:3.26.3' // we need to use the same version as in jclouds because we pull in their tests
 
@@ -64,10 +78,13 @@ dependencies {
 
     testImplementation 'org.testng:testng:7.5.1'
     implementation 'javax.annotation:javax.annotation-api:1.3.2'
+
+    //Annotation support for application.properties
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:3.3.3'
+
+
 }
 
 tasks.named('test') {
     useJUnitPlatform()
 }
-
-

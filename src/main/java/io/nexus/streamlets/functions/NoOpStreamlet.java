@@ -8,8 +8,12 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class NoOpStreamlet implements TransformerStreamlet {
 
+    final Logger logger = LoggerFactory.getLogger(NoOpStreamlet.class);
     private final String name;
     private MessageDigest md;
 
@@ -35,7 +39,7 @@ public class NoOpStreamlet implements TransformerStreamlet {
 
     @Override
     public void doTransform(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
-        System.err.println(Thread.currentThread() + " -> STREAMLET " + name + " RUNNING FUTURE ");
+        logger.info(Thread.currentThread() + " -> STREAMLET " + name + " RUNNING FUTURE ");
         int totalBytesRead = 0;
 
         int iniByte = 0;
@@ -54,8 +58,8 @@ public class NoOpStreamlet implements TransformerStreamlet {
                     iteration++;
                 }
             }
-            System.err.println("[" + Thread.currentThread() + "-STREAMLET- " + name +
-                    "] TOTAL BYTES PROCESSED" + totalBytesRead);
+            logger.info(
+                    "[" + Thread.currentThread() + "-STREAMLET- " + name + "] TOTAL BYTES PROCESSED" + totalBytesRead);
             output.close();
         } catch (IOException e) {
             throw new RuntimeException(e);

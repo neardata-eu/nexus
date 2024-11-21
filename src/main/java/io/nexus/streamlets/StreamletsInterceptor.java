@@ -1,6 +1,7 @@
 package io.nexus.streamlets;
 
 import io.nexus.streamlets.metadata.MetadataService;
+
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -29,11 +30,12 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 /**
- * S3 Proxy middleware that intercepts storage requests and injects them into {@link StreamletsExecutor}.
+ * S3 Proxy middleware that intercepts storage requests and injects them into
+ * {@link StreamletsExecutor}.
  */
 public class StreamletsInterceptor extends ForwardingBlobStore {
 
-    private static final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
+    final Logger logger = LoggerFactory.getLogger(StreamletsInterceptor.class);
     private final StreamletsExecutor streamletsExecution;
 
     public StreamletsInterceptor(BlobStore blobStore, MetadataService metadataService) {
@@ -77,7 +79,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location, String container, CreateContainerOptions createContainerOptions) {
+    public boolean createContainerInLocation(Location location, String container,
+            CreateContainerOptions createContainerOptions) {
         return super.createContainerInLocation(location, container, createContainerOptions);
     }
 
@@ -143,18 +146,26 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob) {
+        this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
+        // Reply to the client once the storage log storage completes, and forward the
+        // operation to the next stage.
+        logger.info("PUT request/Blob successfully processed.");
         return super.putBlob(containerName, blob);
     }
 
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
         this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
-        // Reply to the client once the storage log storage completes, and forward the operation to the next stage.
+        // Reply to the client once the storage log storage completes, and forward the
+        // operation to the next stage.
+        logger.info("PUT request/Blob successfully processed.");
+
         return super.putBlob(containerName, blob, putOptions);
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName, String toContainer, String toName, CopyOptions options) {
+    public String copyBlob(String fromContainer, String fromName, String toContainer, String toName,
+            CopyOptions options) {
         return super.copyBlob(fromContainer, fromName, toContainer, toName, options);
     }
 
@@ -165,14 +176,21 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public Blob getBlob(String containerName, String blobName) {
-        return super.getBlob(containerName, blobName);
+        Blob proxyBlob = super.getBlob(containerName, blobName);
+        // Intercepting the blob
+        this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+        logger.info("GET request/Blob successfully processed.");
+
+        return proxyBlob;
     }
 
     @Override
-    public Blob getBlob(String containerName, String blobName, GetOptions getOptions) { 
+    public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
         Blob proxyBlob = super.getBlob(containerName, blobName, getOptions);
-        //Intercepting the blob
+        // Intercepting the blob
         this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+        logger.info("GET request/Blob successfully processed.");
+
         return proxyBlob;
     }
 
@@ -208,23 +226,28 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
+        logger.info("Multipart upload initiated for container: {}", container);
         return super.initiateMultipartUpload(container, blobMetadata, options);
     }
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
-
+        logger.info("Multipart upload aborted");
         super.abortMultipartUpload(mpu);
     }
 
     @Override
     public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+        logger.info("Multipart upload successfully completed");
         return super.completeMultipartUpload(mpu, parts);
     }
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
-        payload = this.streamletsExecution.interceptAndProcessMultipartUpload(mpu, partNumber, payload);
+        payload = this.streamletsExecution.interceptAndProcessMultipartUpload(mpu, partNumber,
+                payload);
+        logger.info("Part intercepted and successfully processed");
+
         return super.uploadMultipartPart(mpu, partNumber, payload);
     }
 

@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-svc
+  namespace: nexus-test
+  labels:
+    service: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: nexus
+  ports:
+    - port: 9092
+      targetPort: 8181 #S3 Proxy port
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-deployment
+  namespace: nexus-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nexus
+  template:
+    metadata:
+      labels:
+        app: nexus
+    spec:
+      containers:
+        - name: nexus
+          image: hossamelghamry/nexus-tiered-stream-manager
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8181
+          env:
+            # Redis Configuration
+            - name: REDIS_HOST
+              value: "redis-svc"
+            - name: REDIS_PORT
+              value: "6379"
+
+            # S3Proxy Configuration
+            - name: S3PROXY_IDENTITY
+              value: "dev-identity"
+            - name: S3PROXY_CREDENTIAL
+              value: "dev-credential"
+            - name: S3PROXY_ENDPOINT
+              value: "http://0.0.0.0:8181"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: S3PROXY_AUTHORIZATION
+              value: "none"
+            - name: S3PROXY_VIRTUALHOST
+              value: ""
+            - name: S3PROXY_KEYSTORE_PATH
+              value: "keystore.jks"
+            - name: S3PROXY_KEYSTORE_PASSWORD
+              value: "password"
+            - name: S3PROXY_CORS_ALLOW_ALL
+              value: "false"
+            - name: S3PROXY_CORS_ALLOW_ORIGINS
+              value: ""
+            - name: S3PROXY_CORS_ALLOW_METHODS
+              value: ""
+            - name: S3PROXY_CORS_ALLOW_HEADERS
+              value: ""
+            - name: S3PROXY_CORS_ALLOW_CREDENTIAL
+              value: ""
+            - name: S3PROXY_IGNORE_UNKNOWN_HEADERS
+              value: "false"
+            - name: S3PROXY_ENCRYPTED_BLOBSTORE
+              value: ""
+            - name: S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD
+              value: ""
+            - name: S3PROXY_ENCRYPTED_BLOBSTORE_SALT
+              value: ""
+            - name: S3PROXY_READ_ONLY_BLOBSTORE
+              value: "false"
+
+            # JClouds Configuration
+            - name: JCLOUDS_PROVIDER
+              value: "s3"
+            - name: JCLOUDS_IDENTITY
+              value: "dev-identity"
+            - name: JCLOUDS_CREDENTIAL
+              value: "dev-credential"
+            - name: JCLOUDS_ENDPOINT
+              value: "http://minio-svc:9000"
+            - name: JCLOUDS_FILESYSTEM_BASEDIR
+              value: "/tmp/blobstore"
+            - name: JCLOUDS_REGION
+              value: ""
+            - name: JCLOUDS_REGIONS
+              value: "us-east-1"
+            - name: JCLOUDS_KEYSTONE_VERSION
+              value: ""
+            - name: JCLOUDS_KEYSTONE_SCOPE
+              value: ""
+            - name: JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME
+              value: ""

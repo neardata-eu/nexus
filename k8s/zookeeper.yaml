@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: zookeeper-svc
+  name: zookeeper-svc
+  namespace: nexus-test
+spec:
+  type: NodePort
+  ports:
+    - name: zookeeper-port
+      port: 2181
+      nodePort: 30200
+      targetPort: 2181
+  selector:
+    app: zookeeper
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: zookeeper
+  name: zookeeper-deployment
+  namespace: nexus-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+        - image: zookeeper:3.7.2
+          imagePullPolicy: IfNotPresent
+          name: zookeeper
+          env:
+            - name: ZOO_4LW_COMMANDS_WHITELIST
+              value: "*"
+          ports:
+            - containerPort: 2181

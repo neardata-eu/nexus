@@ -1,7 +1,9 @@
 package io.nexus.admincli;
 
 import java.util.Scanner;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import redis.clients.jedis.Jedis;
 
 public class EntryPoint {
