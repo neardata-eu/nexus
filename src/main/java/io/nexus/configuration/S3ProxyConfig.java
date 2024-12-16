@@ -1,22 +1,17 @@
 package io.nexus.configuration;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
-//A class for managing S3Proxy's environement variables and proprties 
-@ConfigurationProperties("s3proxy")
+//A class for managing S3Proxy's environment variables and properties 
 public class S3ProxyConfig {
+    private final static String PROPERTY_NAME = "s3proxy";
 
     private String identity;
     private String credential;
     private String endpoint;
 
-    public S3ProxyConfig() {
-    }
-
-    public S3ProxyConfig(String identity, String credential, String endpoint) {
-        this.identity = identity;
-        this.credential = credential;
-        this.endpoint = endpoint;
+    public S3ProxyConfig(PropertiesLoader config) {
+        this.identity = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "identity");
+        this.credential = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "credential");
+        this.endpoint = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "endpoint");
     }
 
     public String getIdentity() {
@@ -45,11 +40,8 @@ public class S3ProxyConfig {
 
     @Override
     public String toString() {
-        return "S3ProxyProperties{" +
-                "identity='" + identity + '\'' +
-                ", credential='" + credential + '\'' +
-                ", endpoint='" + endpoint + '\'' +
-                '}';
+        return "S3ProxyProperties{" + "identity='" + identity + '\'' + ", credential='" + credential + '\''
+                + ", endpoint='" + endpoint + '\'' + '}';
     }
 
 }

@@ -11,7 +11,11 @@ spec:
     app: nexus
   ports:
     - port: 9092
-      targetPort: 8181 #S3 Proxy port
+      name: s3proxy
+      targetPort: 8181
+    - port: 8080
+      name: web-server
+      targetPort: 8080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,6 +38,9 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8181
+              name: s3proxy
+            - containerPort: 8080
+              name: web-server
           env:
             # Redis Configuration
             - name: REDIS_HOST

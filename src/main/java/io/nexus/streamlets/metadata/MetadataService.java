@@ -3,12 +3,10 @@ package io.nexus.streamlets.metadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
-import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Set;
 
-@Service
 public class MetadataService {
     private static final Logger logger = LoggerFactory.getLogger(MetadataService.class);
 
@@ -41,7 +39,7 @@ public class MetadataService {
     public Policy getPolicyByScope(String scope) throws Exception {
         // TODO: This can be done more efficiently.
         Set<String> keys = this.jedis.keys(METADATA_POLICY_PREFIX + "*");
-        for (String key: keys) {
+        for (String key : keys) {
             Policy policy = getPolicy(key);
             if (policy.getScope().equals(scope)) {
                 return policy;
@@ -52,7 +50,7 @@ public class MetadataService {
 
     public Policy getPolicyByStream(String scope, String stream) throws Exception {
         Set<String> keys = this.jedis.keys(METADATA_POLICY_PREFIX + "*");
-        for (String key: keys) {
+        for (String key : keys) {
             Policy policy = getPolicy(key);
             if (policy.getScope().equals(scope) && policy.getStream().equals(stream)) {
                 return policy;

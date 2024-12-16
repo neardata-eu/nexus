@@ -23,6 +23,7 @@ import org.jclouds.domain.Location;
 import org.jclouds.io.Payload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.InputStream;
 import java.util.List;
@@ -33,10 +34,13 @@ import java.util.concurrent.ExecutorService;
  * S3 Proxy middleware that intercepts storage requests and injects them into
  * {@link StreamletsExecutor}.
  */
+
 public class StreamletsInterceptor extends ForwardingBlobStore {
 
     final Logger logger = LoggerFactory.getLogger(StreamletsInterceptor.class);
     private final StreamletsExecutor streamletsExecution;
+    // Abstracted timer for the whole multipart event
+    private long multipartEventTime;
 
     public StreamletsInterceptor(BlobStore blobStore, MetadataService metadataService) {
         super(blobStore);
@@ -146,21 +150,39 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob) {
-        this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
-        // Reply to the client once the storage log storage completes, and forward the
-        // operation to the next stage.
-        logger.info("PUT request/Blob successfully processed.");
+
+        try {
+            long startTime = System.nanoTime();
+            this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
+            logger.info("PUT request's blob successfully intercepted and processed");
+
+            StreamletsMetrics.PUT_REQUEST_TIMER.record(System.nanoTime() - startTime);
+
+        } catch (Exception e) {
+            logger.error("Error while intercepting the PUT request");
+        }
+
         return super.putBlob(containerName, blob);
     }
 
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
-        this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
+
+        try {
+            long startTime = System.nanoTime();
+            this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
+            logger.info("PUT request's blob successfully intercepted and processed");
+
+            StreamletsMetrics.PUT_REQUEST_TIMER.record(System.nanoTime() - startTime);
+
+        } catch (Exception e) {
+            logger.error("Error while intercepting the PUT request");
+        } finally {
+        }
+
         // Reply to the client once the storage log storage completes, and forward the
         // operation to the next stage.
-        logger.info("PUT request/Blob successfully processed.");
-
-        return super.putBlob(containerName, blob, putOptions);
+        return super.putBlob(containerName, blob);
     }
 
     @Override
@@ -177,19 +199,35 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     @Override
     public Blob getBlob(String containerName, String blobName) {
         Blob proxyBlob = super.getBlob(containerName, blobName);
-        // Intercepting the blob
-        this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
-        logger.info("GET request/Blob successfully processed.");
+
+        try {
+            long startTime = System.nanoTime();
+            this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+            logger.info("GET request's blob successfully intercepted and processed");
+
+            StreamletsMetrics.GET_REQUEST_TIMER.record(System.nanoTime() - startTime);
+
+        } catch (Exception e) {
+            logger.error("Error while intercepting the GET request");
+        }
 
         return proxyBlob;
     }
 
     @Override
     public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
-        Blob proxyBlob = super.getBlob(containerName, blobName, getOptions);
-        // Intercepting the blob
-        this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
-        logger.info("GET request/Blob successfully processed.");
+        Blob proxyBlob = super.getBlob(containerName, blobName);
+
+        try {
+            long startTime = System.nanoTime();
+            this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+            logger.info("GET request's blob successfully intercepted and processed");
+
+            StreamletsMetrics.GET_REQUEST_TIMER.record(System.nanoTime() - startTime);
+
+        } catch (Exception e) {
+            logger.error("Error while intercepting the GET request");
+        }
 
         return proxyBlob;
     }
@@ -227,6 +265,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
         logger.info("Multipart upload initiated for container: {}", container);
+        // Recording the start time for the multipart upload event
+        multipartEventTime = System.nanoTime();
         return super.initiateMultipartUpload(container, blobMetadata, options);
     }
 
@@ -239,14 +279,22 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     @Override
     public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
         logger.info("Multipart upload successfully completed");
+        // Event timer recording
+        StreamletsMetrics.MULTIPART_EVENT_TIMER.record(System.nanoTime() - multipartEventTime);
         return super.completeMultipartUpload(mpu, parts);
     }
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
-        payload = this.streamletsExecution.interceptAndProcessMultipartUpload(mpu, partNumber,
-                payload);
-        logger.info("Part intercepted and successfully processed");
+        try {
+            long startTime = System.nanoTime();
+            payload = this.streamletsExecution.interceptAndProcessMultipartUpload(mpu, partNumber, payload);
+            logger.info("Part intercepted and successfully processed");
+
+            StreamletsMetrics.MULTIPART_REQUEST_TIMER.record(System.nanoTime() - startTime);
+        } catch (Exception e) {
+            logger.error("Error while intercepting the current part");
+        }
 
         return super.uploadMultipartPart(mpu, partNumber, payload);
     }

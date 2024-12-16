@@ -1,7 +1,12 @@
 plugins {
     id 'java'
+    id 'application'
     //Using gradleup's shadow to build a single JAR file and reduce dependency conflicts
     id 'com.gradleup.shadow' version '8.3.4'
+}
+
+application {
+    mainClass = 'io.nexus.Main'
 }
 
 shadowJar {
@@ -13,9 +18,10 @@ shadowJar {
     }
 }
 
-group = 'com.example'
+group = 'io.nexus'
 version = '1.0.0'
 sourceCompatibility = '21'
+
 
 repositories {
     mavenCentral()
@@ -44,22 +50,20 @@ dependencies {
     implementation 'commons-codec:commons-codec:1.15'
 
     implementation "org.apache.jclouds:jclouds-allblobstore:" + jcloudsVersion
-    implementation "org.apache.jclouds.driver:jclouds-slf4j:" + jcloudsVersion
-    //For development builds and tests, uncomment this implementation to use Filesystem
-    //TODO: Figure out a way to include fliesystem to the list of providers/apis without manually adding it here
+    /*
+    TODO: Figure out a way to include filesystem to the list of providers/apis without manually adding it here
+    For development, uncomment this implementation and set jclouds.provider=filesystem
+    For production, comment this implementation and set jclouds.provider=s3
+    */
     // implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
+    
+    implementation "org.apache.jclouds.driver:jclouds-slf4j:" + jcloudsVersion
 
     testImplementation 'org.assertj:assertj-core:3.26.3' // we need to use the same version as in jclouds because we pull in their tests
 
     implementation "org.eclipse.jetty:jetty-servlet:" + jettyVersion
     implementation "org.slf4j:slf4j-api:" + slf4jVersion
     testImplementation "org.slf4j:jcl-over-slf4j:" + slf4jVersion
-
-    // https://mvnrepository.com/artifact/io.netty/netty-all
-    implementation group: 'io.netty', name: 'netty-all', version: '4.1.112.Final'
-
-    // https://mvnrepository.com/artifact/io.pravega/pravega-common
-    implementation group: 'io.pravega', name: 'pravega-common', version: '0.13.0'
 
     // Test JAR dependencies
     testImplementation "org.apache.jclouds:jclouds-blobstore:" + jcloudsVersion + ":tests@jar"
@@ -69,19 +73,20 @@ dependencies {
     testImplementation group: 'org.mockito', name: 'mockito-core', version: '5.13.0'
 
 
-    // https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web
-    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-web', version: '3.3.3'
-    testImplementation group: 'org.springframework.boot', name: 'spring-boot-starter-test', version: '3.3.3'
     // https://mvnrepository.com/artifact/redis.clients/jedis
     implementation group: 'redis.clients', name: 'jedis', version: '5.1.5'
 
+    implementation group: 'io.pravega', name: 'pravega-common', version: '0.13.0'
 
     testImplementation 'org.testng:testng:7.5.1'
     implementation 'javax.annotation:javax.annotation-api:1.3.2'
 
-    //Annotation support for application.properties
-    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:3.3.3'
-
+    //Micrometer and metrics
+    implementation 'io.micrometer:micrometer-core'
+    implementation 'io.micrometer:micrometer-registry-prometheus:latest.release'
+    implementation 'io.prometheus:prometheus-metrics-core:1.3.4'
+    implementation 'io.prometheus:prometheus-metrics-instrumentation-jvm:1.3.4'
+    implementation 'io.prometheus:prometheus-metrics-exporter-httpserver:1.3.4'
 
 }
 

@@ -1,10 +1,8 @@
 package io.nexus.configuration;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
-//A class for managing JClouds' environement variables and proprties 
-@ConfigurationProperties("jclouds")
+//A class for managing JClouds' environment variables and properties 
 public class JCloudsConfig {
+    private final static String PROPERTY_NAME = "jclouds";
 
     private String provider;
     private String identity;
@@ -12,16 +10,12 @@ public class JCloudsConfig {
     private String filesystemBasedir;
     private String endpoint;
 
-    public JCloudsConfig() {
-    }
-
-    public JCloudsConfig(String provider, String identity, String credential, String filesystemBasedir,
-            String endpoint) {
-        this.provider = provider;
-        this.identity = identity;
-        this.credential = credential;
-        this.filesystemBasedir = filesystemBasedir;
-        this.endpoint = endpoint;
+    public JCloudsConfig(PropertiesLoader config) {
+        this.provider = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "provider");
+        this.identity = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "identity");
+        this.credential = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "credential");
+        this.filesystemBasedir = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "filesystembasedir");
+        this.endpoint = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "endpoint");
     }
 
     public String getProvider() {
@@ -66,13 +60,9 @@ public class JCloudsConfig {
 
     @Override
     public String toString() {
-        return "JCloudsProperties{" +
-                "provider='" + provider + '\'' +
-                ", identity='" + identity + '\'' +
-                ", credential='" + credential + '\'' +
-                ", filesystem_base_directory='" + filesystemBasedir + '\'' +
-                ", storage_endpoint='" + endpoint + '\'' +
-                '}';
+        return "JCloudsProperties{" + "provider='" + provider + '\'' + ", identity='" + identity + '\''
+                + ", credential='" + credential + '\'' + ", filesystem_base_directory='" + filesystemBasedir + '\''
+                + ", storage_endpoint='" + endpoint + '\'' + '}';
     }
 
 }

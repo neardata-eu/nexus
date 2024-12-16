@@ -1,5 +1,6 @@
 package io.nexus.streamlets.functions;
 
+import io.nexus.streamlets.StreamletsMetrics;
 import io.nexus.streamlets.TransformerStreamlet;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 import io.pravega.common.util.ByteArraySegment;
@@ -28,13 +29,17 @@ public class NoOpStreamlet implements TransformerStreamlet {
 
     @Override
     public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
+        long startTime = System.nanoTime();
         doTransform(input, output);
+        StreamletsMetrics.NO_OP_TIMER.record(System.nanoTime() - startTime);
     }
 
     @Override
     public void doGet(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
         // TODO: placeholder function
+        long startTime = System.nanoTime();
         doTransform(input, output);
+        StreamletsMetrics.NO_OP_TIMER.record(System.nanoTime() - startTime);
     }
 
     @Override
@@ -42,10 +47,8 @@ public class NoOpStreamlet implements TransformerStreamlet {
         logger.info(Thread.currentThread() + " -> STREAMLET " + name + " RUNNING FUTURE ");
         int totalBytesRead = 0;
 
-        int iniByte = 0;
-        int endByte = 0;
-        int iteration = 0;
         try {
+
             int bytesRead = 0;
             while (bytesRead != -1) {
                 byte[] target = new byte[8192];
@@ -54,13 +57,12 @@ public class NoOpStreamlet implements TransformerStreamlet {
                     ByteArraySegment readData = new ByteArraySegment(target, 0, bytesRead);
                     output.addSegment(readData);
                     totalBytesRead += bytesRead;
-                    endByte += bytesRead;
-                    iteration++;
                 }
             }
             logger.info(
                     "[" + Thread.currentThread() + "-STREAMLET- " + name + "] TOTAL BYTES PROCESSED" + totalBytesRead);
             output.close();
+
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

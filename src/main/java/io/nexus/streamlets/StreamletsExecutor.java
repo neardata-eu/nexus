@@ -37,13 +37,12 @@ import java.util.function.BiConsumer;
 
 /**
  * This class checks the {@link MetadataService} of Nexus for policies and runs
- * streamlets on requests
- * payloads according to the defined policies. Moreover, in parallel to the
- * execution of streamlets,
- * this class also writes to the {@link DurableLog} the incoming request. This
- * is needed to perform
- * retries in case of failures within a data management processing pipeline.
+ * streamlets on requests payloads according to the defined policies. Moreover,
+ * in parallel to the execution of streamlets, this class also writes to the
+ * {@link DurableLog} the incoming request. This is needed to perform retries in
+ * case of failures within a data management processing pipeline.
  */
+
 public class StreamletsExecutor {
 
     final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
@@ -61,6 +60,7 @@ public class StreamletsExecutor {
         this.durableLog = new FileSystemDurableLog();
         this.metadataService = metadataService;
         this.functionSupplierMap = new HashMap<>();
+
     }
 
     // region public methods
@@ -77,6 +77,8 @@ public class StreamletsExecutor {
             logger.warn("Malformed object name being intercepted {}", blob.getMetadata().getName());
             return;
         }
+
+        long startTime = System.nanoTime();
         Policy policy = getPolicyForStream(scope, stream);
         if (policy == null) {
             // If there is no policy, just forward the storage to the next swarmlet or final
@@ -84,6 +86,7 @@ public class StreamletsExecutor {
             logger.warn("No policy set for scope/stream of object {}", blob.getMetadata().getName());
             return;
         }
+        StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
 
         // Getting all streamlets that should be executed based
         // on the applied policy and their metadata
@@ -100,11 +103,10 @@ public class StreamletsExecutor {
             if (contentLength > 0) {
                 final Payload payload = blob.getPayload();
                 // TODO: Get the partition name correctly.
-                StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(
-                        blob.getMetadata().getName(), policy.getSystem(), containerName);
+                StreamPartitionPojo streamPartition = StreamPartitionPojo
+                        .getStreamPartitionPojo(blob.getMetadata().getName(), policy.getSystem(), containerName);
                 InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
-                        streamletsToBeExecuted,
-                        forwardStream);
+                        streamletsToBeExecuted, forwardStream);
                 blob.setPayload(processedContent);
                 logger.info("Successfully processed content based on {}", policy, blob.getMetadata().getName());
                 return;
@@ -113,10 +115,12 @@ public class StreamletsExecutor {
         } catch (Exception e) {
             logger.warn("Error getting the current blob's metadata");
         }
+
     }
 
     public Payload interceptAndProcessMultipartUpload(MultipartUpload multipartUpload, int partNumber,
             Payload payload) {
+
         // 1. TODO: Validate credentials of incoming request to make sure it is a valid
         // one.
         // Check if there is any policy to apply to this storage operation.
@@ -127,6 +131,8 @@ public class StreamletsExecutor {
             logger.warn("Malformed object name being intercepted {}", multipartUpload.blobName());
             return payload;
         }
+
+        long startTime = System.nanoTime();
         Policy policy = getPolicyForStream(scope, stream);
         if (policy == null) {
             // If there is no policy, just forward the storage to the next swarmlet or final
@@ -134,6 +140,7 @@ public class StreamletsExecutor {
             logger.warn("No policy set for scope/stream of object {}", multipartUpload.blobName());
             return payload;
         }
+        StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
 
         // Getting all streamlets that should be executed based
         // on the applied policy and their metadata
@@ -180,7 +187,9 @@ public class StreamletsExecutor {
             // If there is a policy for this stream, return it. If not, look for any
             // scope-level policy.
             return (policy != null) ? policy : this.metadataService.getPolicyByScope(scopeName);
+
         } catch (Exception e) {
+            logger.warn("Error while retrieving from the metadata service");
             throw new RuntimeException(e);
         }
     }
@@ -205,12 +214,12 @@ public class StreamletsExecutor {
                 // Append the correct type of streamlet to the execution
                 // TODO: Implement other cases for streamlet types
                 switch (streamletDescriptor.getType()) {
-                    case TRANSFORMER:
-                        streamletsToBeExecuted.add(new NoOpStreamlet(streamletId));
-                        break;
-                    default:
-                        streamletsToBeExecuted.add(new NoOpStreamlet(streamletId));
-                        break;
+                case TRANSFORMER:
+                    streamletsToBeExecuted.add(new NoOpStreamlet(streamletId));
+                    break;
+                default:
+                    streamletsToBeExecuted.add(new NoOpStreamlet(streamletId));
+                    break;
                 }
             }
 
@@ -233,11 +242,11 @@ public class StreamletsExecutor {
         return false;
     }
 
-    private InputStream processRequestContent(StreamPartitionPojo streamPartition, long contentLength,
-            Payload payload,
+    private InputStream processRequestContent(StreamPartitionPojo streamPartition, long contentLength, Payload payload,
             List<Streamlet> streamletsToBeExecuted, boolean forwardStream) {
 
         final CompletableFuture<InputStream> streamletPipelineResult;
+
         try {
             // Create the resources for storing the input PUT request contents.
             String scopedPartitionName = streamPartition.getScopedObjectName();
@@ -247,8 +256,12 @@ public class StreamletsExecutor {
             logger.info("Submitting processing pipeline task for stream partition {}.", streamPartition);
             ByteBufferPipelineStream requestInputStream = new ByteBufferPipelineStream();
 
+            long startTime = System.nanoTime();
+
             streamletPipelineResult = buildStreamletExecutionPipeline(requestInputStream, streamletsToBeExecuted,
                     scopedPartitionName, forwardStream);
+
+            StreamletsMetrics.PIPELINE_BUILD_TIMER.record(System.nanoTime() - startTime);
 
             // In parallel, the main thread (IO thread pool) can write the storage operation
             // to the log, whereas
@@ -259,7 +272,9 @@ public class StreamletsExecutor {
             // Important: we need to close the dynamicInputStream, so the streamlets know we
             // completed reading.
             requestInputStream.close();
+
         } catch (IOException e) {
+            logger.error("Error processing request's content");
             throw new RuntimeException(e);
         }
         // If needed, wait for the streamlet pipeline processing result to use it to
@@ -268,8 +283,7 @@ public class StreamletsExecutor {
     }
 
     private void storeAndProcessContent(long contentLength, Payload payload,
-            ByteBufferPipelineStream requestInputStream,
-            String streamPartition) throws IOException {
+            ByteBufferPipelineStream requestInputStream, String streamPartition) throws IOException {
         InputStream payloadInputStream = payload.openStream();
         int totalBytesRead = 0;
 
@@ -293,8 +307,7 @@ public class StreamletsExecutor {
     }
 
     private CompletableFuture<InputStream> buildStreamletExecutionPipeline(ByteBufferPipelineStream requestInputStream,
-            List<Streamlet> streamletsToBeExecuted,
-            String streamPartition, boolean forwardStream) {
+            List<Streamlet> streamletsToBeExecuted, String streamPartition, boolean forwardStream) {
         // Start with the initial input wrapped in a CompletableFuture
         List<Map.Entry<ByteBufferPipelineStream, ByteBufferPipelineStream>> pipelineStreams = new ArrayList<>();
         Map.Entry<ByteBufferPipelineStream, ByteBufferPipelineStream> streamTuple = new AbstractMap.SimpleEntry<>(

@@ -14,7 +14,7 @@ RUN apt-get update && \
 WORKDIR /app
 COPY . .
 
-# Using gradleup's shadow to build a single JAR with its dependencies 
+# Using gradle's shadowJar to build a single JAR with its dependencies 
 RUN gradle shadowJar
 
 #########################
@@ -29,7 +29,7 @@ ENV \
     # S3Proxy Config
     S3PROXY_IDENTITY="dev-identity" \
     S3PROXY_CREDENTIAL="dev-credential" \
-    S3PROXY_ENDPOINT="http://0.0.0.0:9092" \
+    S3PROXY_ENDPOINT="http://0.0.0.0:8181" \
     LOG_LEVEL="info" \
     S3PROXY_AUTHORIZATION="none" \
     S3PROXY_VIRTUALHOST="" \
@@ -46,7 +46,7 @@ ENV \
     S3PROXY_ENCRYPTED_BLOBSTORE_SALT="" \
     S3PROXY_READ_ONLY_BLOBSTORE="false" \
     #JClouds Config
-    JCLOUDS_PROVIDER="s3" \
+    JCLOUDS_PROVIDER="filesystem" \
     JCLOUDS_IDENTITY="dev-identity" \
     JCLOUDS_CREDENTIAL="dev-credential" \
     JCLOUDS_FILESYSTEM_BASEDIR="/tmp/blobstore" \
@@ -61,10 +61,12 @@ WORKDIR /app
 
 COPY --from=build /app/build/libs/nexus-java.jar /app
 #Shell command that properly routes the environment variables
-COPY /src/main/java/io/nexus/resources/docker_entrypoint.sh /app
+COPY /src/main/resources/docker_entrypoint.sh /app
 
 RUN chmod +x docker_entrypoint.sh
 
+#Web server port
+EXPOSE 8080
 EXPOSE 8181
 
 ENTRYPOINT ["/app/docker_entrypoint.sh"]

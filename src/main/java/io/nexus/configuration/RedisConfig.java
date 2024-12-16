@@ -1,20 +1,15 @@
 package io.nexus.configuration;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
-//A class for managing Redis's environement variables and proprties 
-@ConfigurationProperties("redis")
+//A class for managing Redis's environment variables and properties 
 public class RedisConfig {
+    private final static String PROPERTY_NAME = "redis";
 
     private String host;
     private int port;
 
-    public RedisConfig() {
-    }
-
-    public RedisConfig(String host, int port) {
-        this.host = host;
-        this.port = port;
+    public RedisConfig(PropertiesLoader config) {
+        this.host = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "host");
+        this.port = config.getInt(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "port");
     }
 
     public String getHost() {
@@ -35,10 +30,7 @@ public class RedisConfig {
 
     @Override
     public String toString() {
-        return "RedisConfig{" +
-                "host='" + host + '\'' +
-                ", port=" + port +
-                '}';
+        return "RedisConfig{" + "host='" + host + '\'' + ", port=" + port + '}';
     }
 
 }
