@@ -8,8 +8,6 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.nexus.configuration.JCloudsConfig;
 import io.nexus.configuration.ServerConfig;
 import io.nexus.configuration.PropertiesLoader;

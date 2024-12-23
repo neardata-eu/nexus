@@ -11,10 +11,22 @@ application {
 
 shadowJar {
     archiveFileName = 'nexus-java.jar'
+    archiveClassifier.set('all') 
     manifest {
         attributes(
             'Main-Class': 'io.nexus.Main' 
         )
+    }
+    //Important - Separate JClouds provider/api dependencies when making a fat JAR
+    //so that several ones can be implemented together (S3, Filesystem)
+    transform(com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer) {
+        resource = 'META-INF/services/org.jclouds.apis.ApiMetadata'
+    }
+    transform(com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer) {
+        resource = 'META-INF/services/org.jclouds.providers.ProviderMetadata'
+    }
+    transform(com.github.jengelman.gradle.plugins.shadow.transformers.ManifestResourceTransformer) {
+        mainClass = 'io.nexus.Main' 
     }
 }
 
@@ -49,13 +61,11 @@ dependencies {
     implementation 'commons-fileupload:commons-fileupload:1.5'
     implementation 'commons-codec:commons-codec:1.15'
 
-    implementation "org.apache.jclouds:jclouds-allblobstore:" + jcloudsVersion
-    /*
-    TODO: Figure out a way to include filesystem to the list of providers/apis without manually adding it here
-    For development, uncomment this implementation and set jclouds.provider=filesystem
-    For production, comment this implementation and set jclouds.provider=s3
-    */
-    // implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
+
+    implementation 'org.apache.jclouds:jclouds-allblobstore:' + jcloudsVersion
+    implementation "org.apache.jclouds.api:s3:" + jcloudsVersion
+    implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
+
     
     implementation "org.apache.jclouds.driver:jclouds-slf4j:" + jcloudsVersion
 
@@ -92,4 +102,8 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+build {
+    dependsOn shadowJar
 }

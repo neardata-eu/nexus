@@ -76,7 +76,7 @@ spec:
             - name: S3PROXY_CORS_ALLOW_CREDENTIAL
               value: ""
             - name: S3PROXY_IGNORE_UNKNOWN_HEADERS
-              value: "false"
+              value: "true"
             - name: S3PROXY_ENCRYPTED_BLOBSTORE
               value: ""
             - name: S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD
