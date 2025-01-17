@@ -86,6 +86,9 @@ dependencies {
     // https://mvnrepository.com/artifact/redis.clients/jedis
     implementation group: 'redis.clients', name: 'jedis', version: '5.1.5'
 
+    // RocksDB Java bindings
+    implementation group: 'org.rocksdb', name: 'rocksdbjni', version: '9.8.4'
+
     implementation group: 'io.pravega', name: 'pravega-common', version: '0.13.0'
 
     testImplementation 'org.testng:testng:7.5.1'

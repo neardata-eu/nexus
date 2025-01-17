@@ -50,7 +50,7 @@ public class StreamletsExecutor {
     private final MultiKeySequentialProcessor<String> taskScheduler;
     private final DurableLog durableLog;
     private final MetadataService metadataService;
-    // TODO: populate the map with the streamlets
+    // TODO: populate the map with the streamlets, and we have to do it one streamlet instace per stream partition
     private final Map<String, Streamlet> functionSupplierMap;
 
     public StreamletsExecutor(MetadataService metadataService) {
@@ -60,15 +60,13 @@ public class StreamletsExecutor {
         this.durableLog = new FileSystemDurableLog();
         this.metadataService = metadataService;
         this.functionSupplierMap = new HashMap<>();
-
     }
 
     // region public methods
 
     // Function to intercept both PUT and GET requests depending on "forwardStream"
     public void interceptAndProcessRequest(String containerName, Blob blob, boolean forwardStream) {
-        // 1. TODO: Validate credentials of incoming request to make sure it is a valid
-        // one.
+        // 1. TODO: Validate credentials of incoming request to make sure it is a valid one.
         // Check if there is any policy to apply to this storage operation.
         String scope = StreamNameUtils.getScopeFromRequest(blob);
         String stream = StreamNameUtils.getStreamFromRequest(blob);
@@ -81,19 +79,16 @@ public class StreamletsExecutor {
         long startTime = System.nanoTime();
         Policy policy = getPolicyForStream(scope, stream);
         if (policy == null) {
-            // If there is no policy, just forward the storage to the next swarmlet or final
-            // destination.
+            // If there is no policy, just forward the storage to the next swarmlet or final destination.
             logger.warn("No policy set for scope/stream of object {}", blob.getMetadata().getName());
             return;
         }
         StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
 
-        // Getting all streamlets that should be executed based
-        // on the applied policy and their metadata
+        // Getting all streamlets that should be executed based on the applied policy and their metadata.
         List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, forwardStream);
-        if (streamletsToBeExecuted.size() == 0) {
-            // If there are no streamlets to be executed, forward the blob to the next
-            // swarmlet or final destination.
+        if (streamletsToBeExecuted.isEmpty()) {
+            // If there are no streamlets to be executed, forward the blob to the next swarmlet or final destination.
             logger.warn("No streamlets to be executed {}", blob.getMetadata().getName());
             return;
         }
@@ -108,7 +103,7 @@ public class StreamletsExecutor {
                 InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
                         streamletsToBeExecuted, forwardStream);
                 blob.setPayload(processedContent);
-                logger.info("Successfully processed content based on {}", policy, blob.getMetadata().getName());
+                logger.info("Successfully processed content {} based on {}", blob.getMetadata().getName(), policy);
                 return;
             }
             logger.warn("No blob content to process");
@@ -121,8 +116,7 @@ public class StreamletsExecutor {
     public Payload interceptAndProcessMultipartUpload(MultipartUpload multipartUpload, int partNumber,
             Payload payload) {
 
-        // 1. TODO: Validate credentials of incoming request to make sure it is a valid
-        // one.
+        // 1. TODO: Validate credentials of incoming request to make sure it is a valid one.
         // Check if there is any policy to apply to this storage operation.
         String scope = StreamNameUtils.getScopeFromRequest(multipartUpload);
         String stream = StreamNameUtils.getStreamFromRequest(multipartUpload);
@@ -135,19 +129,16 @@ public class StreamletsExecutor {
         long startTime = System.nanoTime();
         Policy policy = getPolicyForStream(scope, stream);
         if (policy == null) {
-            // If there is no policy, just forward the storage to the next swarmlet or final
-            // destination.
+            // If there is no policy, just forward the storage to the next swarmlet or final destination.
             logger.warn("No policy set for scope/stream of object {}", multipartUpload.blobName());
             return payload;
         }
         StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
 
-        // Getting all streamlets that should be executed based
-        // on the applied policy and their metadata
+        // Getting all streamlets that should be executed based on the applied policy and their metadata.
         List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, true);
-        if (streamletsToBeExecuted.size() == 0) {
-            // If there are no streamlets to be executed, forward the payload to the next
-            // swarmlet or final destination.
+        if (streamletsToBeExecuted.isEmpty()) {
+            // If there are no streamlets to be executed, forward the payload to the next swarmlet or final destination.
             logger.warn("No streamlets to be executed {}", multipartUpload.blobName());
             return payload;
         }
@@ -234,9 +225,9 @@ public class StreamletsExecutor {
         ExecuteOn executeOn = streamletDescriptor.getExecuteOn();
         if (executeOn == ExecuteOn.ALL)
             return true;
-        if (forwardStream == true & executeOn == ExecuteOn.PUT)
+        if (forwardStream & executeOn == ExecuteOn.PUT)
             return true;
-        if (forwardStream == false & executeOn == ExecuteOn.GET)
+        if (!forwardStream & executeOn == ExecuteOn.GET)
             return true;
 
         return false;
@@ -263,22 +254,19 @@ public class StreamletsExecutor {
 
             StreamletsMetrics.PIPELINE_BUILD_TIMER.record(System.nanoTime() - startTime);
 
-            // In parallel, the main thread (IO thread pool) can write the storage operation
-            // to the log, whereas
-            // we schedule the execution of the function pipeline in the streamlet pool.
+            // In parallel, the main thread (IO thread pool) can write the storage operation to the log,
+            // whereas we schedule the execution of the function pipeline in the streamlet pool.
             storeAndProcessContent(contentLength, payload, requestInputStream, scopedPartitionName);
 
             this.durableLog.closeLogObject(scopedPartitionName);
-            // Important: we need to close the dynamicInputStream, so the streamlets know we
-            // completed reading.
+            // Important: we need to close the dynamicInputStream, so the streamlets know we completed reading.
             requestInputStream.close();
 
         } catch (IOException e) {
             logger.error("Error processing request's content");
             throw new RuntimeException(e);
         }
-        // If needed, wait for the streamlet pipeline processing result to use it to
-        // continue data routing.
+        // If needed, wait for the streamlet pipeline processing result to use it to continue data routing.
         return streamletPipelineResult.join();
     }
 

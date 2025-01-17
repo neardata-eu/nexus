@@ -38,13 +38,13 @@ import java.util.concurrent.ExecutorService;
 public class StreamletsInterceptor extends ForwardingBlobStore {
 
     final Logger logger = LoggerFactory.getLogger(StreamletsInterceptor.class);
-    private final StreamletsExecutor streamletsExecution;
+    private final StreamletsExecutor streamletsExecutor;
     // Abstracted timer for the whole multipart event
     private long multipartEventTime;
 
     public StreamletsInterceptor(BlobStore blobStore, MetadataService metadataService) {
         super(blobStore);
-        this.streamletsExecution = new StreamletsExecutor(metadataService);
+        this.streamletsExecutor = new StreamletsExecutor(metadataService);
     }
 
     @Override
@@ -153,7 +153,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
         try {
             long startTime = System.nanoTime();
-            this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
+            this.streamletsExecutor.interceptAndProcessRequest(containerName, blob, true);
             logger.info("--------PUT request's blob successfully intercepted and processed--------");
 
             StreamletsMetrics.PUT_REQUEST_TIMER.record(System.nanoTime() - startTime);
@@ -170,7 +170,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
         try {
             long startTime = System.nanoTime();
-            this.streamletsExecution.interceptAndProcessRequest(containerName, blob, true);
+            this.streamletsExecutor.interceptAndProcessRequest(containerName, blob, true);
             logger.info("--------PUT request's blob successfully intercepted and processed-------------");
 
             StreamletsMetrics.PUT_REQUEST_TIMER.record(System.nanoTime() - startTime);
@@ -202,7 +202,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
         try {
             long startTime = System.nanoTime();
-            this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+            this.streamletsExecutor.interceptAndProcessRequest(containerName, proxyBlob, false);
             logger.info("--------GET request's blob successfully intercepted and processed--------");
 
             StreamletsMetrics.GET_REQUEST_TIMER.record(System.nanoTime() - startTime);
@@ -220,7 +220,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
         try {
             long startTime = System.nanoTime();
-            this.streamletsExecution.interceptAndProcessRequest(containerName, proxyBlob, false);
+            this.streamletsExecutor.interceptAndProcessRequest(containerName, proxyBlob, false);
             logger.info("--------GET request's blob successfully intercepted and processed--------");
 
             StreamletsMetrics.GET_REQUEST_TIMER.record(System.nanoTime() - startTime);
@@ -288,7 +288,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
         try {
             long startTime = System.nanoTime();
-            payload = this.streamletsExecution.interceptAndProcessMultipartUpload(mpu, partNumber, payload);
+            payload = this.streamletsExecutor.interceptAndProcessMultipartUpload(mpu, partNumber, payload);
             logger.info("Part intercepted and successfully processed");
 
             StreamletsMetrics.MULTIPART_REQUEST_TIMER.record(System.nanoTime() - startTime);
