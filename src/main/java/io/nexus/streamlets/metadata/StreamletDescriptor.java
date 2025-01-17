@@ -17,7 +17,7 @@ public class StreamletDescriptor {
     private ExecuteOn executeOn; // The type of request to operate on
     private Type type; // Streamlet type of operation
     private boolean partitionLocality; // If that streamlet should benefit from stream partition locality
-    private ResourceUsage resourceUsage; // Exepected resource to use
+    private ResourceUsage resourceUsage; // Expected resource to use
     private boolean requiresGPU; // If the operation requires any GPU usage
 
     public StreamletDescriptor() {

@@ -85,7 +85,7 @@ public class MetadataService {
 
     // Similarly implement for SwarmletDescriptor
     public void saveSwarmletDescriptor(SwarmletDescriptor descriptor) throws Exception {
-        String key = METADATA_SWARMLET_PREFIX + descriptor.getId();
+        String key = METADATA_SWARMLET_PREFIX + descriptor.getServiceEndpoint();
         String json = this.objectMapper.writeValueAsString(descriptor);
         this.jedis.set(key, json);
     }

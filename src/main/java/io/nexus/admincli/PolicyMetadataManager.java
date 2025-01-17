@@ -12,12 +12,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.metadata.Policy;
 
-public class PolicyManagment {
+public class PolicyMetadataManager {
     private Scanner scanner;
     private Jedis redis;
     private ObjectMapper objectMapper;
 
-    public PolicyManagment(Scanner scanner, Jedis redis, ObjectMapper objectMapper) {
+    public PolicyMetadataManager(Scanner scanner, Jedis redis, ObjectMapper objectMapper) {
         this.scanner = scanner;
         this.redis = redis;
         this.objectMapper = objectMapper;

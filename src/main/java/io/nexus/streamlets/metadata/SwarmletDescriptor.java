@@ -1,38 +1,68 @@
 package io.nexus.streamlets.metadata;
 
+/**
+ * Metadata descriptor for a swarmlet (i.e., group of identical Nexus
+ * worker instances running as a unified service). The descriptor of
+ * the swamrlet captures the endpoint of the service, the "region" where
+ * the swarmlet is located and the specialized "hardware" available (e.g.,
+ * GPU). This information is useful for taking routing decisions.
+ */
 public class SwarmletDescriptor {
 
-    private String id;
-    private String type;
-    private String value;
+    private String serviceEndpoint;
+    private Region region;
+    private Hardware hardware;
 
-    public SwarmletDescriptor(String id, String type, String value) {
-        this.id = id;
-        this.type = type;
-        this.value = value;
+    public enum Region {
+        EDGE,
+        CLOUD
     }
 
-    public String getId() {
-        return id;
+    public enum Hardware {
+        NONE,
+        GPU,
+        TEE
     }
 
-    public void setId(String id) {
-        this.id = id;
+    public SwarmletDescriptor() {
+
+    }
+    public SwarmletDescriptor(String serviceEndpoint, Region region, Hardware hardware) {
+        this.serviceEndpoint = serviceEndpoint;
+        this.region = region;
+        this.hardware = hardware;
     }
 
-    public String getType() {
-        return type;
+    public String getServiceEndpoint() {
+        return serviceEndpoint;
     }
 
-    public void setType(String type) {
-        this.type = type;
+    public void setServiceEndpoint(String serviceEndpoint) {
+        this.serviceEndpoint = serviceEndpoint;
     }
 
-    public String getValue() {
-        return value;
+    public Region getRegion() {
+        return this.region;
     }
 
-    public void setValue(String value) {
-        this.value = value;
+    public void setRegion(Region region) {
+        this.region = region;
+    }
+
+    public Hardware getHardware() {
+        return this.hardware;
+    }
+
+    public void setHardware(Hardware hardware) {
+        this.hardware = hardware;
+    }
+
+    @Override
+    public String toString() {
+        return "SwarmletDescriptor{" +
+                "serviceEndpoint='" + serviceEndpoint + '\'' +
+                ", region=" + region +
+                ", hardware=" + hardware +
+                '}';
     }
 }

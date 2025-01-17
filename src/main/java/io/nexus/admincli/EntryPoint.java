@@ -11,13 +11,15 @@ public class EntryPoint {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static boolean running = true;
 
-    private static PolicyManagment policyCLI;
-    private static StreamletDescriptorManagement streamletDescriptorCLI;
+    private static PolicyMetadataManager policyCLI;
+    private static StreamletDescriptorManager streamletDescriptorCLI;
+    private static SwarmletMetadataManager swarmletDescriptorCLI;
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
-        policyCLI = new PolicyManagment(scanner, redis, objectMapper);
-        streamletDescriptorCLI = new StreamletDescriptorManagement(scanner, redis, objectMapper);
+        policyCLI = new PolicyMetadataManager(scanner, redis, objectMapper);
+        streamletDescriptorCLI = new StreamletDescriptorManager(scanner, redis, objectMapper);
+        swarmletDescriptorCLI = new SwarmletMetadataManager(scanner, redis, objectMapper);
 
         while (running) {
             initialPrompt(scanner);
@@ -27,10 +29,11 @@ public class EntryPoint {
     }
 
     public static void initialPrompt(Scanner scanner) {
-        System.out.println("\nNexus Management CLI");
-        System.out.println("1. Policy Management");
-        System.out.println("2. Streamlet Management");
-        System.out.println("3. Exit");
+        System.out.println("\nNexus Metadata Management CLI");
+        System.out.println("1. Policy Metadata Management");
+        System.out.println("2. Streamlet Metadata Management");
+        System.out.println("3. Swarmlet Metadata Management");
+        System.out.println("4. Exit");
 
         boolean validChoice = false;
         int answer;
@@ -48,6 +51,9 @@ public class EntryPoint {
                     streamletDescriptorCLI.mainPrompt();
                     break;
                 case 3:
+                    swarmletDescriptorCLI.mainPrompt();
+                    break;
+                case 4:
                     running = false;
                     break;
                 default:
@@ -55,6 +61,5 @@ public class EntryPoint {
                     System.out.println("Invalid choice. Try again.");
             }
         }
-
     }
 }

@@ -9,12 +9,12 @@ import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.metadata.StreamletDescriptor;
 import redis.clients.jedis.Jedis;
 
-public class StreamletDescriptorManagement {
+public class StreamletDescriptorManager {
     private Scanner scanner;
     private Jedis redis;
     private ObjectMapper objectMapper;
 
-    public StreamletDescriptorManagement(Scanner scanner, Jedis redis, ObjectMapper objectMapper) {
+    public StreamletDescriptorManager(Scanner scanner, Jedis redis, ObjectMapper objectMapper) {
         this.scanner = scanner;
         this.redis = redis;
         this.objectMapper = objectMapper;
@@ -138,7 +138,7 @@ public class StreamletDescriptorManagement {
             streamletDescriptor.setRequiresGPU(inputRequiresGPU(scanner));
             // Validate Streamlet fields
             if (!validateStreamletDescriptor(streamletDescriptor)) {
-                System.out.println("Invalid policy data. Please try again.");
+                System.out.println("Invalid Streamlet data. Please try again.");
                 return;
             }
 
