@@ -17,7 +17,8 @@ import io.nexus.s3proxy.AuthenticationType;
 import io.nexus.s3proxy.S3Proxy;
 import io.nexus.streamlets.StreamletsInterceptor;
 import io.nexus.streamlets.metadata.MetadataService;
-import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 
 public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
@@ -43,9 +44,10 @@ public class Main {
                 .overrides(objectStoreProperties).endpoint(JCLOUDS_CONFIG.getEndpoint()).build(BlobStoreContext.class);
         logger.info("Initialized object storage link");
 
-        // Initializing the metadata service with the redis config
-        MetadataService metadataService = new MetadataService(
-                new Jedis(REDIS_CONFIG.getHost(), REDIS_CONFIG.getPort()));
+        // Initializing a Redis pool for metadata multithreaded interaction support
+        JedisPoolConfig jedisConfig = new JedisPoolConfig();
+        final JedisPool jedisPool = new JedisPool(jedisConfig, REDIS_CONFIG.getHost(), REDIS_CONFIG.getPort());
+        MetadataService metadataService = new MetadataService(jedisPool);
         logger.info("Initialized metadata service");
 
         // Nexus interceptor middleware
@@ -66,13 +68,15 @@ public class Main {
                 Thread.sleep(60000);
             } catch (InterruptedException e) {
                 logger.error("Error during main thread execution.", e);
+                // Shutdown the redis pool gracefully
+                jedisPool.close();
                 shutdownMainApplication();
             }
         }
         System.exit(0);
     }
 
-    // Shuts down the main server and Spring Boot application gracefully
+    // Shuts down the main server gracefully
     private static void shutdownMainApplication() {
         System.out.println("Shutting down the main server due to an error in metadata server...");
         running = false; // This will terminate the main server loop

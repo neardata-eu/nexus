@@ -31,7 +31,7 @@ public class MetricNames {
                         "Duration of streamlet pipeline building");
 
         // Streamlet Functions
-        public static final MetricInfo STREAMLET_FUNCTION_NO_OP_DURATION = new MetricInfo(
-                        PREFIX + "streamlet.function.no_op_duration",
-                        "Duration of reading the blob's content with no processing");
+        // TODO: Introduce distinct metrics for each streamlet rather than one for all
+        public static final MetricInfo STREAMLET_FUNCTION_EXECUTION_DURATION = new MetricInfo(
+                        PREFIX + "streamlet.function.no_op_duration", "Duration of executing a streamlet");
 }

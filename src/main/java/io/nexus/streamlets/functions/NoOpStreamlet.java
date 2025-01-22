@@ -31,7 +31,7 @@ public class NoOpStreamlet implements TransformerStreamlet {
     public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
         long startTime = System.nanoTime();
         doTransform(input, output);
-        StreamletsMetrics.NO_OP_TIMER.record(System.nanoTime() - startTime);
+        StreamletsMetrics.STREAMLET_EXECUTION_TIMER.record(System.nanoTime() - startTime);
     }
 
     @Override
@@ -39,7 +39,7 @@ public class NoOpStreamlet implements TransformerStreamlet {
         // TODO: placeholder function
         long startTime = System.nanoTime();
         doTransform(input, output);
-        StreamletsMetrics.NO_OP_TIMER.record(System.nanoTime() - startTime);
+        StreamletsMetrics.STREAMLET_EXECUTION_TIMER.record(System.nanoTime() - startTime);
     }
 
     @Override

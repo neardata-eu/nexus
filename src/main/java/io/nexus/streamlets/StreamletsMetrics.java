@@ -23,6 +23,7 @@ public class StreamletsMetrics {
         public static final TimerMetric PIPELINE_BUILD_TIMER = new TimerMetric(
                         MetricNames.STREAMLET_PIPELINE_BUILD_DURATION);
 
-        public static final TimerMetric NO_OP_TIMER = new TimerMetric(MetricNames.STREAMLET_FUNCTION_NO_OP_DURATION);
+        public static final TimerMetric STREAMLET_EXECUTION_TIMER = new TimerMetric(
+                        MetricNames.STREAMLET_FUNCTION_EXECUTION_DURATION);
 
 }
