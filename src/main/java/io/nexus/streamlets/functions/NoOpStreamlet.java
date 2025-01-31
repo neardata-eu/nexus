@@ -44,7 +44,7 @@ public class NoOpStreamlet implements TransformerStreamlet {
 
     @Override
     public void doTransform(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
-        logger.info(Thread.currentThread() + " -> STREAMLET " + name + " RUNNING FUTURE ");
+        logger.info(Thread.currentThread() + " -> STREAMLET " + name + " STARTING EXECUTION.");
         int totalBytesRead = 0;
 
         try {
@@ -59,10 +59,8 @@ public class NoOpStreamlet implements TransformerStreamlet {
                     totalBytesRead += bytesRead;
                 }
             }
-            logger.info(
-                    "[" + Thread.currentThread() + "-STREAMLET- " + name + "] TOTAL BYTES PROCESSED" + totalBytesRead);
+            logger.info("[" + Thread.currentThread() + "-STREAMLET- " + name + "] TOTAL BYTES PROCESSED: " + totalBytesRead);
             output.close();
-
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

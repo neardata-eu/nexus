@@ -4,13 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
+import io.nexus.streamlets.metadata.*;
 import redis.clients.jedis.Jedis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
-import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.metadata.Policy;
 
 public class PolicyMetadataManager {
     private Scanner scanner;
@@ -64,7 +62,7 @@ public class PolicyMetadataManager {
 
         Policy policy = new Policy();
         System.out.print("Enter policy id: ");
-        policy.setId(MetadataService.METADATA_POLICY_PREFIX + scanner.nextLine());
+        policy.setId(scanner.nextLine());
 
         System.out.print("Enter system: ");
         policy.setSystem(scanner.nextLine());
@@ -75,7 +73,7 @@ public class PolicyMetadataManager {
         System.out.print("Enter stream: ");
         policy.setStream(scanner.nextLine());
 
-        policy.setPipeline(inputList(scanner, "pipeline"));
+        policy.setPipeline(inputPipeline(scanner));
         policy.setStorage(inputList(scanner, "storage"));
 
         // Validate Policy fields
@@ -87,9 +85,9 @@ public class PolicyMetadataManager {
         // Store in Redis
         try {
             String policyJson = objectMapper.writeValueAsString(policy);
-            redis.set(policy.getId(), policyJson);
+            redis.set(MetadataService.METADATA_POLICY_PREFIX + policy.getId(), policyJson);
             System.out.println("Policy created with ID: " + policy.getId());
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException | IncorrectMetadataException e) {
             System.out.println("Error creating policy: " + e.getMessage());
         }
     }
@@ -115,9 +113,9 @@ public class PolicyMetadataManager {
 
     private void updatePolicy() {
         System.out.print("Enter Policy ID to update: ");
-        String id = MetadataService.METADATA_POLICY_PREFIX + scanner.nextLine();
+        String id = scanner.nextLine();
 
-        String policyJson = redis.get(id);
+        String policyJson = redis.get(MetadataService.METADATA_POLICY_PREFIX + id);
         if (policyJson == null) {
             System.out.println("Policy not found.");
             return;
@@ -135,7 +133,7 @@ public class PolicyMetadataManager {
             System.out.print("Enter new stream (current: " + policy.getStream() + "): ");
             policy.setStream(scanner.nextLine());
 
-            policy.setPipeline(inputList(scanner, "pipeline"));
+            policy.setPipeline(inputPipeline(scanner));
             policy.setStorage(inputList(scanner, "storage"));
 
             // Validate Policy fields
@@ -145,9 +143,9 @@ public class PolicyMetadataManager {
             }
 
             // Update in Redis
-            redis.set(id, objectMapper.writeValueAsString(policy));
+            redis.set(MetadataService.METADATA_POLICY_PREFIX + id, objectMapper.writeValueAsString(policy));
             System.out.println("Policy updated successfully.");
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException | IncorrectMetadataException e) {
             System.out.println("Error updating policy: " + e.getMessage());
         }
     }
@@ -193,7 +191,7 @@ public class PolicyMetadataManager {
         return true;
     }
 
-    private static List<String> inputList(Scanner scanner, String fieldName) {
+    private List<String> inputList(Scanner scanner, String fieldName) {
         System.out.print("Enter " + fieldName + " values (comma-separated): ");
         String input = scanner.nextLine();
         String[] values = input.split(",");
@@ -202,5 +200,72 @@ public class PolicyMetadataManager {
             list.add(value.trim());
         }
         return list;
+    }
+
+    private List<StreamletExecutionDescriptor> inputPipeline(Scanner scanner) {
+        List<StreamletExecutionDescriptor> streamletPipeline = new ArrayList<>();
+        String userInput;
+        do {
+            System.out.print("Enter Streamlet ID to read (it should exist in the system): ");
+            String id = scanner.nextLine();
+            StreamletDescriptor streamlet = getStreamletDescriptor(id);
+            if (streamlet == null) {
+                System.out.println("The Streamlets of a Policy should be installed first.");
+                throw new IncorrectMetadataException("Trying to configure a Policy with non-existent Streamlets.");
+            }
+            Region region = inputRegion(scanner);
+            List<String> args = inputList(scanner, "streamletArgs");
+            streamletPipeline.add(new StreamletExecutionDescriptor(streamlet, region, args));
+            System.out.println("Do you want to continue adding Streamlets? (yes/no): ");
+            userInput = scanner.nextLine();
+        } while (userInput.equalsIgnoreCase("yes"));
+        return streamletPipeline;
+    }
+    
+    private StreamletDescriptor getStreamletDescriptor(String id) {
+        String streamletJson = redis.get(MetadataService.METADATA_STREAMLET_PREFIX + id);
+        StreamletDescriptor streamlet = null;
+        if (streamletJson == null) {
+            System.out.println("Streamlet not found.");
+            return streamlet;
+        }
+
+        try {
+            streamlet = objectMapper.readValue(streamletJson, StreamletDescriptor.class);
+            System.out.println("Streamlet Details:");
+            System.out.println(streamlet);
+        } catch (JsonProcessingException e) {
+            System.out.println("Error reading Streamlet: " + e.getMessage());
+        }
+        return streamlet;
+    }
+
+    private static Region inputRegion(Scanner scanner) {
+        System.out.println("Enter the region to execute this Streamlet: ");
+        System.out.println("1. EDGE ");
+        System.out.println("2. CLOUD ");
+
+        boolean validChoice = false;
+        int answer;
+        Region input = null;
+
+        while (!validChoice) {
+            validChoice = true;
+            answer = scanner.nextInt();
+            scanner.nextLine();
+
+            switch (answer) {
+                case 1:
+                    input = Region.EDGE;
+                    break;
+                case 2:
+                    input = Region.CLOUD;
+                    break;
+                default:
+                    validChoice = false;
+                    System.out.println("Invalid choice. Try again.");
+            }
+        }
+        return input;
     }
 }

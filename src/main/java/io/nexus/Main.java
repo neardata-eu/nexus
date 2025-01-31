@@ -3,20 +3,17 @@ package io.nexus;
 import java.net.URI;
 import java.util.Properties;
 
+import io.nexus.configuration.*;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.nexus.configuration.JCloudsConfig;
-import io.nexus.configuration.ServerConfig;
-import io.nexus.configuration.PropertiesLoader;
-import io.nexus.configuration.RedisConfig;
-import io.nexus.configuration.S3ProxyConfig;
 import io.nexus.s3proxy.AuthenticationType;
 import io.nexus.s3proxy.S3Proxy;
 import io.nexus.streamlets.StreamletsInterceptor;
 import io.nexus.streamlets.metadata.MetadataService;
+import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
@@ -24,7 +21,6 @@ public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
     private static volatile boolean running = true;
     private static final PropertiesLoader config = new PropertiesLoader();
-    private static final ServerConfig webserver = new ServerConfig(config);
 
     public static void main(String[] args) throws Exception {
 
@@ -32,9 +28,11 @@ public class Main {
         final JCloudsConfig JCLOUDS_CONFIG = new JCloudsConfig(config);
         final S3ProxyConfig S3PROXY_CONFIG = new S3ProxyConfig(config);
         final RedisConfig REDIS_CONFIG = new RedisConfig(config);
+        final NexusConfig NEXUS_CONFIG = new NexusConfig(config);
         logger.info("S3Proxy configuration {}", S3PROXY_CONFIG);
         logger.info("JClouds configuration {}", JCLOUDS_CONFIG);
         logger.info("Redis configuration {}", REDIS_CONFIG);
+        logger.info("Nexus configuration {}", NEXUS_CONFIG);
 
         // Configure and initialize JClouds with the object storage's details
         Properties objectStoreProperties = new Properties();
@@ -47,7 +45,7 @@ public class Main {
         // Initializing a Redis pool for metadata multithreaded interaction support
         JedisPoolConfig jedisConfig = new JedisPoolConfig();
         final JedisPool jedisPool = new JedisPool(jedisConfig, REDIS_CONFIG.getHost(), REDIS_CONFIG.getPort());
-        MetadataService metadataService = new MetadataService(jedisPool);
+        MetadataService metadataService = new MetadataService(NEXUS_CONFIG, jedisPool);
         logger.info("Initialized metadata service");
 
         // Nexus interceptor middleware

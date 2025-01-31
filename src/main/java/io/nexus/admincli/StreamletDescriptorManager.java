@@ -5,6 +5,7 @@ import java.util.Scanner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.nexus.streamlets.metadata.Hardware;
 import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.metadata.StreamletDescriptor;
 import redis.clients.jedis.Jedis;
@@ -61,13 +62,11 @@ public class StreamletDescriptorManager {
 
         StreamletDescriptor streamletDescriptor = new StreamletDescriptor();
         System.out.print("Enter Streamlet ID: ");
-        streamletDescriptor.setId(MetadataService.METADATA_STREAMLET_PREFIX + scanner.nextLine());
+        streamletDescriptor.setId(scanner.nextLine());
 
         streamletDescriptor.setExecuteOn(inputExecuteOn(scanner));
-        streamletDescriptor.setType(inputType(scanner));
         streamletDescriptor.setPartitionLocality(inputPartitionLocality(scanner));
-        streamletDescriptor.setResourceUsage(inputResourceUsage(scanner));
-        streamletDescriptor.setRequiresGPU(inputRequiresGPU(scanner));
+        streamletDescriptor.setHardware(inputHardware(scanner));
 
         // Validations and storage
         if (!validateStreamletDescriptor(streamletDescriptor)) {
@@ -77,13 +76,11 @@ public class StreamletDescriptorManager {
 
         try {
             String streamletJson = objectMapper.writeValueAsString(streamletDescriptor);
-            redis.set(streamletDescriptor.getId(), streamletJson);
-            System.out.println("Streamlet created with ID: " +
-                    streamletDescriptor.getId());
+            redis.set(MetadataService.METADATA_STREAMLET_PREFIX + streamletDescriptor.getId(), streamletJson);
+            System.out.println("Streamlet created with ID: " + streamletDescriptor.getId());
         } catch (JsonProcessingException e) {
             System.out.println("Error creating Streamlet: " + e.getMessage());
         }
-
     }
 
     private void readStreamlet() {
@@ -107,9 +104,9 @@ public class StreamletDescriptorManager {
 
     private void updateStreamlet() {
         System.out.println("Enter Streamlet ID to update: ");
-        String id = MetadataService.METADATA_STREAMLET_PREFIX + scanner.nextLine();
+        String id = scanner.nextLine();
 
-        String streamletDescriptorJson = redis.get(id);
+        String streamletDescriptorJson = redis.get(MetadataService.METADATA_STREAMLET_PREFIX + id);
         if (streamletDescriptorJson == null) {
             System.out.println("Streamlet not found.");
             return;
@@ -122,27 +119,20 @@ public class StreamletDescriptorManager {
             System.out.println("\nCurrently executes on: " + streamletDescriptor.getExecuteOn());
             streamletDescriptor.setExecuteOn(inputExecuteOn(scanner));
 
-            System.out.println("\nCurrent Streamlet type: " + streamletDescriptor.getType());
-            streamletDescriptor.setType(inputType(scanner));
-
-            System.out.println(
-                    "\nCurrent partition locality support: "
+            System.out.println("\nCurrent partition locality support: "
                             + (streamletDescriptor.isPartitionLocality() ? "Supported" : "Not supported") + " ");
             streamletDescriptor.setPartitionLocality(inputPartitionLocality(scanner));
 
-            System.out.println("\nCurrently resource used: " + streamletDescriptor.getResourceUsage());
-            streamletDescriptor.setResourceUsage(inputResourceUsage(scanner));
+            System.out.println("\nCurrently hardware required: " + streamletDescriptor.getHardware());
+            streamletDescriptor.setHardware(inputHardware(scanner));
 
-            System.out.println(
-                    "\nCurrently requires GPU: " + (streamletDescriptor.requiresGPU() ? "Yes" : "No"));
-            streamletDescriptor.setRequiresGPU(inputRequiresGPU(scanner));
             // Validate Streamlet fields
             if (!validateStreamletDescriptor(streamletDescriptor)) {
                 System.out.println("Invalid Streamlet data. Please try again.");
                 return;
             }
 
-            redis.set(id, objectMapper.writeValueAsString(streamletDescriptor));
+            redis.set(MetadataService.METADATA_STREAMLET_PREFIX + id, objectMapper.writeValueAsString(streamletDescriptor));
             System.out.println("Streamlet updated successfully.");
         } catch (JsonProcessingException e) {
             System.out.println("Error updating Streamlet: " + e.getMessage());
@@ -180,9 +170,7 @@ public class StreamletDescriptorManager {
             return false;
         if (streamletDescriptor.getExecuteOn() == null)
             return false;
-        if (streamletDescriptor.getType() == null)
-            return false;
-        if (streamletDescriptor.getResourceUsage() == null)
+        if (streamletDescriptor.getHardware() == null)
             return false;
 
         return true;
@@ -221,52 +209,14 @@ public class StreamletDescriptorManager {
         return input;
     }
 
-    private static StreamletDescriptor.Type inputType(Scanner scanner) {
-        System.out.println("Enter Streamlet type: ");
-        System.out.println("1. Transformer ");
-        System.out.println("2. Performance ");
-        System.out.println("3. Routing ");
-        System.out.println("4. Semantic ");
-
-        boolean validChoice = false;
-        int answer;
-        StreamletDescriptor.Type input = null;
-
-        while (!validChoice) {
-            validChoice = true;
-            answer = scanner.nextInt();
-            scanner.nextLine();
-
-            switch (answer) {
-                case 1:
-                    input = StreamletDescriptor.Type.TRANSFORMER;
-                    break;
-                case 2:
-                    input = StreamletDescriptor.Type.PERFORMANCE;
-                    break;
-                case 3:
-                    input = StreamletDescriptor.Type.ROUTING;
-                    break;
-                case 4:
-                    input = StreamletDescriptor.Type.SEMANTIC;
-                    break;
-                default:
-                    validChoice = false;
-                    System.out.println("Invalid choice. Try again.");
-            }
-        }
-        return input;
-    }
-
     private static Boolean inputPartitionLocality(Scanner scanner) {
         System.out.println("Benefits from partition locality? (Y/N)");
 
-        String boolResponse = scanner.nextLine();
         boolean validChoice = false;
 
         while (!validChoice) {
+            String boolResponse = scanner.nextLine();
             boolResponse = boolResponse.trim().toUpperCase();
-            validChoice = true;
             if (boolResponse.equals("Y")) {
                 return true;
             } else if (boolResponse.equals("N")) {
@@ -279,14 +229,15 @@ public class StreamletDescriptorManager {
         return false;
     }
 
-    private static StreamletDescriptor.ResourceUsage inputResourceUsage(Scanner scanner) {
-        System.out.println("Enter resource usage: ");
-        System.out.println("1. CPU ");
-        System.out.println("2. IO ");
+    private static Hardware inputHardware(Scanner scanner) {
+        System.out.println("Enter the special hardware for instances in this Streamlet: ");
+        System.out.println("1. NONE ");
+        System.out.println("2. GPU ");
+        System.out.println("3. TEE ");
 
         boolean validChoice = false;
         int answer;
-        StreamletDescriptor.ResourceUsage input = null;
+        Hardware input = null;
 
         while (!validChoice) {
             validChoice = true;
@@ -295,10 +246,13 @@ public class StreamletDescriptorManager {
 
             switch (answer) {
                 case 1:
-                    input = StreamletDescriptor.ResourceUsage.CPU;
+                    input = Hardware.NONE;
                     break;
                 case 2:
-                    input = StreamletDescriptor.ResourceUsage.IO;
+                    input = Hardware.GPU;
+                    break;
+                case 3:
+                    input = Hardware.TEE;
                     break;
                 default:
                     validChoice = false;
@@ -306,26 +260,5 @@ public class StreamletDescriptorManager {
             }
         }
         return input;
-    }
-
-    private static boolean inputRequiresGPU(Scanner scanner) {
-        System.out.println("Does it require GPU usage? (Y/N)");
-
-        String boolResponse = scanner.nextLine();
-        boolean validChoice = false;
-
-        while (!validChoice) {
-            boolResponse = boolResponse.trim().toUpperCase();
-            validChoice = true;
-            if (boolResponse.equals("Y")) {
-                return true;
-            } else if (boolResponse.equals("N")) {
-                return false;
-            } else {
-                System.out.println("Invalid input. Please enter Y or N.");
-                validChoice = false;
-            }
-        }
-        return false;
     }
 }

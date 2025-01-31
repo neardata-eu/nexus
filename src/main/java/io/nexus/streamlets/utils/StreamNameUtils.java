@@ -27,11 +27,11 @@ public class StreamNameUtils {
         return getScopeFromChunkName(blob.getMetadata().getName());
     }
 
-    private static String getScopeFromChunkName(String chunkName) {
+    public static String getScopeFromChunkName(String chunkName) {
         return getChunkNameComponent(chunkName, 0);
     }
 
-    private static String getStreamFromChunkName(String chunkName) {
+    public static String getStreamFromChunkName(String chunkName) {
         return getChunkNameComponent(chunkName, 1);
     }
 

@@ -26,6 +26,4 @@ public abstract class AbstractFunctionStateTest {
         Assertions.assertEquals("1", myFunction2.apply("A", "2"));
         manager.savePersistentFields(myFunction2);
     }
-
-
 }

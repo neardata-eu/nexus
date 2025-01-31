@@ -13,17 +13,6 @@ public class SwarmletDescriptor {
     private Region region;
     private Hardware hardware;
 
-    public enum Region {
-        EDGE,
-        CLOUD
-    }
-
-    public enum Hardware {
-        NONE,
-        GPU,
-        TEE
-    }
-
     public SwarmletDescriptor() {
 
     }

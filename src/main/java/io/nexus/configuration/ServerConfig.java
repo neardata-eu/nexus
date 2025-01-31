@@ -25,6 +25,5 @@ public class ServerConfig {
         } catch (Exception e) {
             logger.error("Unable to initialize http server", e);
         }
-
     }
 }

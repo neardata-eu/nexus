@@ -1,27 +1,87 @@
 package io.nexus.streamlets.metadata;
 
 import java.util.List;
+import java.util.Optional;
 
+/**
+ * This class represents a Nexus policy on a data stream. It contains the following information:
+ * - Identifier of the policy.
+ * - System targeted by the policy (Kafka, Pulsar).
+ * - Scope (or tenant, depending on the system) for this policy.
+ * - Stream (or topic, depending on the system) for this policy.
+ * - Pipeline of Streamlets to be executed as part of this policy. Each {@link StreamletExecutionDescriptor} object
+ * in the pipeline captures "where" (Region) a Streamlet should be executed, if it requires specific hardware, and
+ * any additional parameters to be passed to the Streamlet during its execution.
+ * - List of storage locations to store data to (only for terminal Streamlets).
+ *
+ * It is important to consider that the Pipeline of a Policy will be interpreted in sequential order: left-to-right
+ * for PUTs and right-to-left for GETs. An administrator is responsible for understanding the implications of executing
+ * Streamlets in a specific order. Moreover, administrators need to make sure that for the Streamlets performing some
+ * kind of transformation of data (e.g., compression), the reverse transformation is properly implemented as well, so
+ * the streaming system will retrieve from Nexus exactly the same data it originally stored.
+ */
 public class Policy {
 
     private String id;
     private String system;
     private String scope;
     private String stream;
-    private List<String> pipeline;
+    private List<StreamletExecutionDescriptor> pipeline;
     private List<String> storage;
 
     public Policy() {
         // Needed for object (de)serialization.
     }
 
-    public Policy(String id, String system, String scope, String stream, List<String> pipeline, List<String> storage) {
+    public Policy(String id, String system, String scope, String stream, List<StreamletExecutionDescriptor> pipeline, List<String> storage) {
         this.id = id;
         this.system = system;
         this.scope = scope;
         this.stream = stream;
         this.pipeline = pipeline;
         this.storage = storage;
+    }
+
+    public List<StreamletExecutionDescriptor> getStreamletsForRegion(Region region) {
+        return this.pipeline.stream().filter(s -> s.getRegion().equals(region)).toList();
+    }
+
+    /**
+     * Returns the next Region in the policy based on the input Region provided. If currentRegion does not exist or
+     * is the last Region in the pipeline, the method will retun null.
+     *
+     * @param currentRegion
+     * @return Next Region in the policy (or null, if there is none).
+     */
+    public Region getNextRegionToForward(Region currentRegion) {
+        Region nextRegion = null;
+        boolean foundCurrentRegion = false;
+        for (StreamletExecutionDescriptor sed : this.pipeline) {
+            if (foundCurrentRegion && !sed.getRegion().equals(currentRegion)) {
+                // Found the next region to forward the request
+                return sed.getRegion();
+            }
+            if (sed.getRegion().equals(currentRegion)) {
+                foundCurrentRegion = true;
+            }
+        }
+
+        // No next region to forward, the pipeline ends in the current region.
+        return nextRegion;
+    }
+
+    public Optional<Hardware> getSpecialHardwareInRegion(Region region) {
+        return getStreamletsForRegion(region)
+                .stream()
+                .filter(s -> !s.getStreamlet().getHardware().equals(Hardware.NONE))
+                .map(s -> s.getStreamlet().getHardware())
+                .findFirst();
+    }
+
+    public boolean canSwarmletExecuteStreamlets(Region currentRegion, Hardware availableHardware) {
+        Optional<Hardware> requiredHardware = getSpecialHardwareInRegion(currentRegion);
+        return !getStreamletsForRegion(currentRegion).isEmpty()
+                && (requiredHardware.isEmpty() || requiredHardware.get().equals(availableHardware));
     }
 
     public String getId() {
@@ -56,11 +116,11 @@ public class Policy {
         this.stream = stream;
     }
 
-    public List<String> getPipeline() {
-        return pipeline;
+    public List<StreamletExecutionDescriptor> getPipeline() {
+        return this.pipeline;
     }
 
-    public void setPipeline(List<String> pipeline) {
+    public void setPipeline(List<StreamletExecutionDescriptor> pipeline) {
         this.pipeline = pipeline;
     }
 

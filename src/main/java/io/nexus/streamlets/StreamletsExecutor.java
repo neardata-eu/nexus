@@ -1,11 +1,10 @@
 package io.nexus.streamlets;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.nexus.streamlets.durablelog.DurableLog;
 import io.nexus.streamlets.durablelog.FileSystemDurableLog;
 import io.nexus.streamlets.functions.NoOpStreamlet;
-import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.metadata.Policy;
-import io.nexus.streamlets.metadata.StreamletDescriptor;
+import io.nexus.streamlets.metadata.*;
 import io.nexus.streamlets.metadata.StreamletDescriptor.ExecuteOn;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
 import io.nexus.streamlets.utils.StreamNameUtils;
@@ -42,7 +41,6 @@ import java.util.function.BiConsumer;
  * {@link DurableLog} the incoming request. This is needed to perform retries in
  * case of failures within a data management processing pipeline.
  */
-
 public class StreamletsExecutor {
 
     final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
@@ -60,31 +58,19 @@ public class StreamletsExecutor {
         this.durableLog = new FileSystemDurableLog();
         this.metadataService = metadataService;
         this.functionSupplierMap = new HashMap<>();
+        // TODO: Dynamically load Streamlets from Redis source code
+        this.functionSupplierMap.put("noop-1", new NoOpStreamlet("NOOP"));
     }
 
     // region public methods
 
+    @VisibleForTesting
+    public Map<String, Streamlet> getFunctionSupplierMap() {
+        return functionSupplierMap;
+    }
+
     // Function to intercept both PUT and GET requests depending on "forwardStream"
-    public void interceptAndProcessRequest(String containerName, Blob blob, boolean forwardStream) {
-        // 1. TODO: Validate credentials of incoming request to make sure it is a valid one.
-        // Check if there is any policy to apply to this storage operation.
-        String scope = StreamNameUtils.getScopeFromRequest(blob);
-        String stream = StreamNameUtils.getStreamFromRequest(blob);
-        if (scope == null || stream == null) {
-            // Problem parsing the object path, skipping.
-            logger.warn("Malformed object name being intercepted {}", blob.getMetadata().getName());
-            return;
-        }
-
-        long startTime = System.nanoTime();
-        Policy policy = getPolicyForStream(scope, stream);
-        if (policy == null) {
-            // If there is no policy, just forward the storage to the next swarmlet or final destination.
-            logger.warn("No policy set for scope/stream of object {}", blob.getMetadata().getName());
-            return;
-        }
-        StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
-
+    public void processRequest(Policy policy, String containerName, Blob blob, boolean forwardStream) {
         // Getting all streamlets that should be executed based on the applied policy and their metadata.
         List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, forwardStream);
         if (streamletsToBeExecuted.isEmpty()) {
@@ -103,19 +89,19 @@ public class StreamletsExecutor {
                 InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
                         streamletsToBeExecuted, forwardStream);
                 blob.setPayload(processedContent);
+                // Content length is needed by S3Proxy when managing data against S3.
+                blob.getMetadata().getContentMetadata().setContentLength((long) processedContent.available());
                 logger.info("Successfully processed content {} based on {}", blob.getMetadata().getName(), policy);
                 return;
             }
             logger.warn("No blob content to process");
         } catch (Exception e) {
-            logger.warn("Error getting the current blob's metadata");
+            logger.error("Error getting the current blob's metadata.", e);
         }
-
     }
 
     public Payload interceptAndProcessMultipartUpload(MultipartUpload multipartUpload, int partNumber,
             Payload payload) {
-
         // 1. TODO: Validate credentials of incoming request to make sure it is a valid one.
         // Check if there is any policy to apply to this storage operation.
         String scope = StreamNameUtils.getScopeFromRequest(multipartUpload);
@@ -127,7 +113,7 @@ public class StreamletsExecutor {
         }
 
         long startTime = System.nanoTime();
-        Policy policy = getPolicyForStream(scope, stream);
+        Policy policy = this.metadataService.getPolicyByStream(scope, stream);
         if (policy == null) {
             // If there is no policy, just forward the storage to the next swarmlet or final destination.
             logger.warn("No policy set for scope/stream of object {}", multipartUpload.blobName());
@@ -171,50 +157,19 @@ public class StreamletsExecutor {
 
     // region private methods
 
-    private Policy getPolicyForStream(String scopeName, String streamName) {
-        try {
-            // First, check if there is any policy for this specific stream.
-            Policy policy = this.metadataService.getPolicyByStream(scopeName, streamName);
-            // If there is a policy for this stream, return it. If not, look for any
-            // scope-level policy.
-            return (policy != null) ? policy : this.metadataService.getPolicyByScope(scopeName);
-
-        } catch (Exception e) {
-            logger.warn("Error while retrieving from the metadata service");
-            throw new RuntimeException(e);
-        }
-    }
-
     private List<Streamlet> fillStreamletPipelineFromPolicy(Policy policy, boolean forwardStream) {
-        // TODO: Swarmlet GPU check
-
-        List<Streamlet> streamletsToBeExecuted = new ArrayList<>();
         try {
-            // Build the execution pipeline of streamlets based on the policy defined
-            // For PUT, pipeline is read in order
-            // For GET, pipeline execution is reversed
-            List<String> policyPipeline = forwardStream ? policy.getPipeline() : policy.getPipeline().reversed();
-
-            for (String streamletId : policyPipeline) {
-                StreamletDescriptor streamletDescriptor = this.metadataService.getStreamletDescriptor(streamletId);
-                // Check if the streamlet is to be executed as per the request type
-                // If not, it won't be included in the list
-                if (shouldExecuteStreamletOnRequest(streamletDescriptor, forwardStream) == false)
-                    continue;
-
-                // Append the correct type of streamlet to the execution
-                // TODO: Implement other cases for streamlet types
-                switch (streamletDescriptor.getType()) {
-                case TRANSFORMER:
-                    streamletsToBeExecuted.add(new NoOpStreamlet(streamletId));
-                    break;
-                default:
-                    streamletsToBeExecuted.add(new NoOpStreamlet(streamletId));
-                    break;
-                }
-            }
-
-            return streamletsToBeExecuted;
+            // Build the execution pipeline of streamlets based on the policy defined in this Region. For PUTs, the
+            // pipeline is executed left-to-right. For GETs, the pipeline execution is reversed.
+            Region currentRegion = this.metadataService.getNexusConfig().getRegion();
+            List<StreamletExecutionDescriptor> policyPipeline = forwardStream ?
+                    policy.getStreamletsForRegion(currentRegion) :
+                    policy.getStreamletsForRegion(currentRegion).reversed();
+            // Check if the streamlet is to be executed as per the request type and return the list of executable functions.
+            return policyPipeline.stream()
+                    .filter(s -> shouldExecuteStreamletOnRequest(s.getStreamlet(), forwardStream))
+                    .map(s -> this.functionSupplierMap.get(s.getStreamlet().getId()))
+                    .toList();
         } catch (Exception e) {
             logger.debug("Error finding streamlet from policy pipeline");
             throw new RuntimeException(e);
@@ -312,12 +267,10 @@ public class StreamletsExecutor {
             ByteBufferPipelineStream input = pipelineStreams.get(index).getKey();
             ByteBufferPipelineStream output = pipelineStreams.get(index).getValue();
             index++;
-            // Based on the pipeline flow, execute each streamlet's PUT/GET correspondingly
+            // Based on the pipeline flow, execute each streamlet's PUT/GET accordingly.
             BiConsumer<ByteBufferPipelineStream, ByteBufferPipelineStream> currentStreamlet = forwardStream
-                    ? streamlet::doPut
-                    : streamlet::doGet;
-            pipeline.add(
-                    CompletableFuture.runAsync(() -> currentStreamlet.accept(input, output), this.streamletExecutor));
+                    ? streamlet::doPut : streamlet::doGet;
+            pipeline.add(CompletableFuture.runAsync(() -> currentStreamlet.accept(input, output), this.streamletExecutor));
             resultStream.set(output);
         }
         CompletableFuture<Void> combinedPipeline = Futures.allOf(pipeline);

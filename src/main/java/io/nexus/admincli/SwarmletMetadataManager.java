@@ -2,8 +2,9 @@ package io.nexus.admincli;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexus.streamlets.metadata.Hardware;
 import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.metadata.StreamletDescriptor;
+import io.nexus.streamlets.metadata.Region;
 import io.nexus.streamlets.metadata.SwarmletDescriptor;
 import redis.clients.jedis.Jedis;
 
@@ -62,7 +63,7 @@ public class SwarmletMetadataManager {
 
         SwarmletDescriptor swarmletDescriptor = new SwarmletDescriptor();
         System.out.print("Enter Swarmlet service endpoint: ");
-        swarmletDescriptor.setServiceEndpoint(MetadataService.METADATA_SWARMLET_PREFIX + scanner.nextLine());
+        swarmletDescriptor.setServiceEndpoint(scanner.nextLine());
 
         swarmletDescriptor.setRegion(inputRegion(scanner));
         swarmletDescriptor.setHardware(inputHardware(scanner));
@@ -75,22 +76,21 @@ public class SwarmletMetadataManager {
 
         try {
             String streamletJson = objectMapper.writeValueAsString(swarmletDescriptor);
-            redis.set(swarmletDescriptor.getServiceEndpoint(), streamletJson);
+            redis.set(MetadataService.METADATA_SWARMLET_PREFIX + swarmletDescriptor.getServiceEndpoint(), streamletJson);
             System.out.println("Swarmlet created with ID: " + swarmletDescriptor.getServiceEndpoint());
         } catch (JsonProcessingException e) {
             System.out.println("Error creating Swarmlet: " + e.getMessage());
         }
-
     }
 
-    private static SwarmletDescriptor.Region inputRegion(Scanner scanner) {
+    private static Region inputRegion(Scanner scanner) {
         System.out.println("Enter the region where this Swarmlet is deployed: ");
         System.out.println("1. EDGE ");
         System.out.println("2. CLOUD ");
 
         boolean validChoice = false;
         int answer;
-        SwarmletDescriptor.Region input = null;
+        Region input = null;
 
         while (!validChoice) {
             validChoice = true;
@@ -99,10 +99,10 @@ public class SwarmletMetadataManager {
 
             switch (answer) {
                 case 1:
-                    input = SwarmletDescriptor.Region.EDGE;
+                    input = Region.EDGE;
                     break;
                 case 2:
-                    input = SwarmletDescriptor.Region.CLOUD;
+                    input = Region.CLOUD;
                     break;
                 default:
                     validChoice = false;
@@ -112,7 +112,7 @@ public class SwarmletMetadataManager {
         return input;
     }
 
-    private static SwarmletDescriptor.Hardware inputHardware(Scanner scanner) {
+    private static Hardware inputHardware(Scanner scanner) {
         System.out.println("Enter the special hardware for instances in this Swarmlet: ");
         System.out.println("1. NONE ");
         System.out.println("2. GPU ");
@@ -120,7 +120,7 @@ public class SwarmletMetadataManager {
 
         boolean validChoice = false;
         int answer;
-        SwarmletDescriptor.Hardware input = null;
+        Hardware input = null;
 
         while (!validChoice) {
             validChoice = true;
@@ -129,13 +129,13 @@ public class SwarmletMetadataManager {
 
             switch (answer) {
                 case 1:
-                    input = SwarmletDescriptor.Hardware.NONE;
+                    input = Hardware.NONE;
                     break;
                 case 2:
-                    input = SwarmletDescriptor.Hardware.GPU;
+                    input = Hardware.GPU;
                     break;
                 case 3:
-                    input = SwarmletDescriptor.Hardware.TEE;
+                    input = Hardware.TEE;
                     break;
                 default:
                     validChoice = false;
@@ -177,9 +177,9 @@ public class SwarmletMetadataManager {
 
     private void updateSwarmlet() {
         System.out.println("Enter Swarmlet endpoint to update: ");
-        String id = MetadataService.METADATA_SWARMLET_PREFIX + scanner.nextLine();
+        String id = scanner.nextLine();
 
-        String swarmletDescriptorJson = redis.get(id);
+        String swarmletDescriptorJson = redis.get(MetadataService.METADATA_SWARMLET_PREFIX + id);
         if (swarmletDescriptorJson == null) {
             System.out.println("Swarmlet not found.");
             return;
@@ -200,7 +200,7 @@ public class SwarmletMetadataManager {
                 return;
             }
 
-            redis.set(id, objectMapper.writeValueAsString(swarmletDescriptor));
+            redis.set(MetadataService.METADATA_SWARMLET_PREFIX + id, objectMapper.writeValueAsString(swarmletDescriptor));
             System.out.println("Swarmlet updated successfully.");
         } catch (JsonProcessingException e) {
             System.out.println("Error updating Swarmlet: " + e.getMessage());

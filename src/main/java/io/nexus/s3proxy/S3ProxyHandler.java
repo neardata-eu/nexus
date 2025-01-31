@@ -79,6 +79,8 @@ import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
+import io.nexus.streamlets.ForwardedRequestException;
+import io.nexus.streamlets.NoSuitableSwarmletInRegionException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -2012,11 +2014,26 @@ public class S3ProxyHandler {
             builder = builder.contentMD5(contentMD5);
         }
 
-        eTag = blobStore.putBlob(containerName, builder.build(),
-                options);
+        // Nexus interception point in case of requiring request routing for PUTs. The flow of S3Proxy
+        // defaults to use the S3BlobStorage configuration as the final storage for data. This means that
+        // we cannot change where data is stored manipulating request headers or options. We need to interrupt
+        // the request processing and take control of the request by manually routing it to the right endpoint.
+        try {
+            eTag = blobStore.putBlob(containerName, builder.build(), options);
+        } catch (Exception e) {
+            if (e instanceof ForwardedRequestException) {
+                logger.info("Routing request to another Swarmlet or worker.");
+            } else {
+                // Unknown error, send error to the client.
+                logger.error("Policy set for a Stream that cannot be executed with existing Swarmlets.", e);
+                response.sendError(500);
+            }
+        } finally {
+            // TODO: Check whether to take care of eTag
+            eTag = "1234566789";
+        }
 
         addCorsResponseHeader(request, response);
-
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
 

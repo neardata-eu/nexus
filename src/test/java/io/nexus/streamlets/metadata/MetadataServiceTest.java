@@ -1,10 +1,13 @@
 package io.nexus.streamlets.metadata;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import io.nexus.configuration.NexusConfig;
 import org.junit.Test;
 import org.mockito.Mockito;
 import static org.mockito.Mockito.times;
@@ -25,11 +28,14 @@ public class MetadataServiceTest {
         JedisPool mockJedisPool = Mockito.mock(JedisPool.class);
         Jedis mockJedis = Mockito.mock(Jedis.class);
         when(mockJedisPool.getResource()).thenReturn(mockJedis);
+        NexusConfig nexusConfig = Mockito.mock(NexusConfig.class);;
 
-        MetadataService metadataService = new MetadataService(mockJedisPool);
+        MetadataService metadataService = new MetadataService(nexusConfig, mockJedisPool);
         ObjectMapper objectMapper = new ObjectMapper();
-
-        Policy expectedPolicy = new Policy("policy123", "kafka", "myScope", "myStream", List.of("edge(s1) | cloud(s2)"),
+        StreamletDescriptor mockPutStreamlet = new StreamletDescriptor("noop-1", StreamletDescriptor.ExecuteOn.ALL,
+                Hardware.NONE, true);
+        Policy expectedPolicy = new Policy("policy123", "kafka", "myScope", "myStream",
+                List.of(new StreamletExecutionDescriptor(mockPutStreamlet, Region.EDGE, Collections.emptyList())),
                 List.of("bucket1", "local_store"));
         String policyJson = objectMapper.writeValueAsString(expectedPolicy);
 
