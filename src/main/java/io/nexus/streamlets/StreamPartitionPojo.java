@@ -4,15 +4,11 @@ import java.io.File;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class StreamPartitionPojo {
 
-    final Logger logger = LoggerFactory.getLogger(StreamPartitionPojo.class);
-
+    // Kafka's pattern follows the default pattern, up to three directories
     public final static Pattern KAFKA_PARTITION_OBJECT_PATTERN = Pattern
-            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/(\\d+)/(\\d{20}-[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
+            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
     public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN = Pattern
             .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
 
@@ -22,8 +18,8 @@ public class StreamPartitionPojo {
     public final String partition;
     public final String object;
 
-    public StreamPartitionPojo(String containerName, String scopeName, String streamName,
-            String partitionName, String objectName) {
+    public StreamPartitionPojo(String containerName, String scopeName, String streamName, String partitionName,
+            String objectName) {
         this.container = containerName;
         this.scope = scopeName;
         this.stream = streamName;
@@ -33,38 +29,32 @@ public class StreamPartitionPojo {
 
     @Override
     public String toString() {
-        return "StreamPartitionPojo{" +
-                "container='" + container + '\'' +
-                ", scope='" + scope + '\'' +
-                ", stream='" + stream + '\'' +
-                ", partition='" + partition + '\'' +
-                ", object='" + object + '\'' +
-                '}';
+        return "StreamPartitionPojo{" + "container='" + container + '\'' + ", scope='" + scope + '\'' + ", stream='"
+                + stream + '\'' + ", partition='" + partition + '\'' + ", object='" + object + '\'' + '}';
     }
 
     public static StreamPartitionPojo getStreamPartitionPojo(String objectPath, String streamingSystem,
             String container) {
         switch (streamingSystem) {
-            case "kafka":
-                return buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
-            case "pulsar":
-                return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
-            case "pravega":
-                return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
-            default:
-                // This is useful for testing without having to run a streaming system.
-                return buildDefaultStreamPartitionPojoFromRequestPath(objectPath, container);
+        case "kafka":
+            return buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
+        case "pulsar":
+            return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
+        case "pravega":
+            return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
+        default:
+            // This is useful for testing without having to run a streaming system.
+            return buildDefaultStreamPartitionPojoFromRequestPath(objectPath, container);
         }
     }
 
     public static StreamPartitionPojo buildStreamPartitionPojoFromKafkaRequestPath(
-            String fullyQualifiedKafkaRequestPath,
-            String container) {
+            String fullyQualifiedKafkaRequestPath, String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedKafkaRequestPath);
         if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1),
-                    matcher.group(2), matcher.group(3), matcher.group(4));
-            System.err.println(pojo);
+            StreamPartitionPojo pojo = new StreamPartitionPojo(container, matcher.group(1), matcher.group(2),
+                    matcher.group(2), matcher.group(3));
+
             return pojo;
         }
 
@@ -74,12 +64,11 @@ public class StreamPartitionPojo {
 
     // TODO: Do this for real
     public static StreamPartitionPojo buildStreamPartitionPojoFromPulsarRequestPath(
-            String fullyQualifiedPulsarRequestPath,
-            String container) {
+            String fullyQualifiedPulsarRequestPath, String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPulsarRequestPath);
         if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1),
-                    matcher.group(2), matcher.group(3), matcher.group(4));
+            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1), matcher.group(2),
+                    matcher.group(3), matcher.group(4));
             System.err.println(pojo);
             return pojo;
         }
@@ -90,12 +79,11 @@ public class StreamPartitionPojo {
 
     // TODO: Do this for real
     public static StreamPartitionPojo buildStreamPartitionPojoFromPravegaRequestPath(
-            String fullyQualifiedPravegaRequestPath,
-            String container) {
+            String fullyQualifiedPravegaRequestPath, String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPravegaRequestPath);
         if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1),
-                    matcher.group(2), matcher.group(3), matcher.group(4));
+            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1), matcher.group(2),
+                    matcher.group(3), matcher.group(4));
             System.err.println(pojo);
             return pojo;
         }

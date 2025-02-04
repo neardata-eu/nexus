@@ -31,7 +31,10 @@ public class MetricNames {
                         "Duration of streamlet pipeline building");
 
         // Streamlet Functions
-        // TODO: Introduce distinct metrics for each streamlet rather than one for all
-        public static final MetricInfo STREAMLET_FUNCTION_EXECUTION_DURATION = new MetricInfo(
-                        PREFIX + "streamlet.function.no_op_duration", "Duration of executing a streamlet");
+        // TODO: Introduce distinct metrics by having each streamlet adding its own
+        // "tag"
+        public static final MetricInfo TRANSFORMER_STREAMLET_EXECUTION_DURATION = new MetricInfo(
+                        PREFIX + "streamlet.function.transformer_duration",
+                        "Duration of executing a transformer streamlet");
+
 }

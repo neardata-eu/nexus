@@ -1,15 +1,11 @@
 package io.nexus.streamlets;
 
-import io.nexus.streamlets.utils.ByteBufferPipelineStream;
+/**
+ * 
+ * Abstract class providing base functionality for transformative operations
+ * TODO: Extend on this during event-based implementation, if needed
+ */
 
-public interface TransformerStreamlet extends Streamlet {
-
-    public void doTransform(ByteBufferPipelineStream input, ByteBufferPipelineStream output);
-
-    // TODO
-    //public InputStream processGet(DynamicInputStream input);
-
-    // TODO
-    //public InputStream processList(DynamicInputStream input);
+public abstract class TransformerStreamlet implements Streamlet {
 
 }

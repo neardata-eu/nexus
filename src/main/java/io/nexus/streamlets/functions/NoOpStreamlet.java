@@ -1,69 +1,118 @@
 package io.nexus.streamlets.functions;
 
-import io.nexus.streamlets.StreamletsMetrics;
 import io.nexus.streamlets.TransformerStreamlet;
+import io.nexus.streamlets.context.StreamletContext;
+import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
+import io.nexus.streamlets.utils.InputStreamRecord;
 import io.pravega.common.util.ByteArraySegment;
 
-import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.Record;
+import org.apache.kafka.common.record.RecordBatch;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public class NoOpStreamlet implements TransformerStreamlet {
+/**
+ * 
+ * A basic Streamlet that simply reads the provided data
+ * 
+ */
 
-    final Logger logger = LoggerFactory.getLogger(NoOpStreamlet.class);
+public class NoOpStreamlet extends TransformerStreamlet {
+
     private final String name;
-    private MessageDigest md;
 
     public NoOpStreamlet(String name) {
         this.name = name;
-        try {
-            md = MessageDigest.getInstance("SHA-1");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     @Override
-    public void doPut(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
-        long startTime = System.nanoTime();
-        doTransform(input, output);
-        StreamletsMetrics.STREAMLET_EXECUTION_TIMER.record(System.nanoTime() - startTime);
+    public void handlePut(InputStreamRecord event, StreamletContext context) {
+        Logger logger = context.getLogger();
+        Policy policy = context.getPolicy();
+
+        // Example of adding metadata
+        context.putUserMetadata("encryption", "lz4");
+
+        logger.info("PUT - Executing Streamlet: " + name + ", as part of pipeline: {}", policy.getPipeline());
+        doRead(event.input(), event.output(), logger);
     }
 
     @Override
-    public void doGet(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
-        // TODO: placeholder function
-        long startTime = System.nanoTime();
-        doTransform(input, output);
-        StreamletsMetrics.STREAMLET_EXECUTION_TIMER.record(System.nanoTime() - startTime);
+    public void handleGet(InputStreamRecord event, StreamletContext context) {
+        Logger logger = context.getLogger();
+        Policy policy = context.getPolicy();
+
+        // Example of getting metadata
+        String encryptionType = context.getUserMetadata("encryption");
+        logger.info("User Metadata - Encryption type: {}", encryptionType);
+
+        logger.info("GET - Executing Streamlet: " + name + ", as part of pipeline: {}", policy.getPipeline());
+        doRead(event.input(), event.output(), logger);
     }
 
-    @Override
-    public void doTransform(ByteBufferPipelineStream input, ByteBufferPipelineStream output) {
-        logger.info(Thread.currentThread() + " -> STREAMLET " + name + " STARTING EXECUTION.");
+    private void doRead(ByteBufferPipelineStream input, ByteBufferPipelineStream output, Logger logger) {
+        // TODO: Move this logic into ByteBufferPipelineStream
         int totalBytesRead = 0;
 
         try {
-
-            int bytesRead = 0;
-            while (bytesRead != -1) {
+            int currentBytesRead = 0;
+            while (currentBytesRead != -1) {
+                // TODO: Adjust array size to be compliant with streaming services conventions
                 byte[] target = new byte[8192];
-                bytesRead = input.read(target);
-                if (bytesRead > 0) {
-                    ByteArraySegment readData = new ByteArraySegment(target, 0, bytesRead);
+                currentBytesRead = input.read(target);
+                if (currentBytesRead > 0) {
+                    ByteArraySegment readData = new ByteArraySegment(target, 0, currentBytesRead);
                     output.addSegment(readData);
-                    totalBytesRead += bytesRead;
+                    totalBytesRead += currentBytesRead;
+
+                    // TODO: This function will be useful during the serialization work
+                    // deserializeRecords(target, currentBytesRead, logger);
+
                 }
+                logger.info("Finished Streamlet " + name + " operations. Processed Bytes: " + totalBytesRead);
+                output.close();
             }
-            logger.info("[" + Thread.currentThread() + "-STREAMLET- " + name + "] TOTAL BYTES PROCESSED: " + totalBytesRead);
-            output.close();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            logger.error("Error deserializing the input", e);
         }
+    }
+
+    private static void deserializeRecords(byte[] target, int currentBytesRead, Logger logger) {
+        // Deserialize the read data
+        ByteBuffer buffer = ByteBuffer.wrap(target, 0, currentBytesRead);
+        MemoryRecords records = MemoryRecords.readableRecords(buffer);
+
+        for (RecordBatch batch : records.batches()) {
+            for (Record record : batch) {
+                long offset = record.offset();
+                String key = byteBufferToString(record.key());
+                String value = byteBufferToString(record.value());
+                long timestamp = record.timestamp();
+                int keySize = record.keySize();
+                int valueSize = record.valueSize();
+
+                logger.info("---Current Record---");
+                logger.info("Record offset: " + offset);
+                logger.info("Timestamp: " + timestamp);
+                logger.info("Key size: " + keySize + ", key: " + key);
+                logger.info("Value size: " + valueSize + ", value: " + value);
+            }
+        }
+    }
+
+    private static String byteBufferToString(ByteBuffer buffer) {
+        if (buffer == null) {
+            return "null";
+        }
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.slice().get(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
 }

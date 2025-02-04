@@ -101,6 +101,9 @@ dependencies {
     implementation 'io.prometheus:prometheus-metrics-instrumentation-jvm:1.3.4'
     implementation 'io.prometheus:prometheus-metrics-exporter-httpserver:1.3.4'
 
+    //Needed for Kafka serialization processes
+    implementation 'org.apache.kafka:kafka-clients:3.9.0'
+
 }
 
 tasks.named('test') {

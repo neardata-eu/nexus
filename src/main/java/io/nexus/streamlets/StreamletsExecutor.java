@@ -1,5 +1,8 @@
 package io.nexus.streamlets;
 
+import io.nexus.streamlets.context.ContextManager;
+import io.nexus.streamlets.context.RequestContext;
+import io.nexus.streamlets.context.StreamletContext;
 import com.google.common.annotations.VisibleForTesting;
 import io.nexus.streamlets.durablelog.DurableLog;
 import io.nexus.streamlets.durablelog.FileSystemDurableLog;
@@ -7,12 +10,15 @@ import io.nexus.streamlets.functions.NoOpStreamlet;
 import io.nexus.streamlets.metadata.*;
 import io.nexus.streamlets.metadata.StreamletDescriptor.ExecuteOn;
 import io.nexus.streamlets.utils.ByteBufferPipelineStream;
+import io.nexus.streamlets.utils.InputStreamRecord;
 import io.nexus.streamlets.utils.StreamNameUtils;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import io.pravega.common.concurrent.Futures;
 import io.pravega.common.concurrent.MultiKeySequentialProcessor;
 import io.pravega.common.util.ByteArraySegment;
 
+import org.jclouds.ContextBuilder;
+import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.io.Payload;
@@ -48,11 +54,12 @@ public class StreamletsExecutor {
     private final MultiKeySequentialProcessor<String> taskScheduler;
     private final DurableLog durableLog;
     private final MetadataService metadataService;
-    // TODO: populate the map with the streamlets, and we have to do it one streamlet instace per stream partition
+    // TODO: populate the map with the streamlets, and we have to do it one
+    // streamlet instance per stream partition
     private final Map<String, Streamlet> functionSupplierMap;
 
     public StreamletsExecutor(MetadataService metadataService) {
-        // Create a separate thread pool for executing streamlets.
+        // Create a separate thread pool for executing streamlets
         this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(10, "streamlet-threadpool");
         this.taskScheduler = new MultiKeySequentialProcessor<>(streamletExecutor);
         this.durableLog = new FileSystemDurableLog();
@@ -71,10 +78,12 @@ public class StreamletsExecutor {
 
     // Function to intercept both PUT and GET requests depending on "forwardStream"
     public void processRequest(Policy policy, String containerName, Blob blob, boolean forwardStream) {
-        // Getting all streamlets that should be executed based on the applied policy and their metadata.
+        // Getting all streamlets that should be executed based on the applied policy
+        // and their metadata.
         List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, forwardStream);
-        if (streamletsToBeExecuted.isEmpty()) {
-            // If there are no streamlets to be executed, forward the blob to the next swarmlet or final destination.
+        if (streamletsToBeExecuted.size() == 0) {
+            // If there are no streamlets to be executed, forward the blob to the next
+            // swarmlet or final destination.
             logger.warn("No streamlets to be executed {}", blob.getMetadata().getName());
             return;
         }
@@ -87,7 +96,7 @@ public class StreamletsExecutor {
                 StreamPartitionPojo streamPartition = StreamPartitionPojo
                         .getStreamPartitionPojo(blob.getMetadata().getName(), policy.getSystem(), containerName);
                 InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
-                        streamletsToBeExecuted, forwardStream);
+                        streamletsToBeExecuted, forwardStream, policy, blob);
                 blob.setPayload(processedContent);
                 // Content length is needed by S3Proxy when managing data against S3.
                 blob.getMetadata().getContentMetadata().setContentLength((long) processedContent.available());
@@ -102,12 +111,15 @@ public class StreamletsExecutor {
 
     public Payload interceptAndProcessMultipartUpload(MultipartUpload multipartUpload, int partNumber,
             Payload payload) {
-        // 1. TODO: Validate credentials of incoming request to make sure it is a valid one.
+        // 1. TODO: Validate credentials of incoming request to make sure it is a valid
+        // one.
         // Check if there is any policy to apply to this storage operation.
         String scope = StreamNameUtils.getScopeFromRequest(multipartUpload);
         String stream = StreamNameUtils.getStreamFromRequest(multipartUpload);
+
         if (scope == null || stream == null) {
             // Problem parsing the object path, skipping.
+            // Reset the working context
             logger.warn("Malformed object name being intercepted {}", multipartUpload.blobName());
             return payload;
         }
@@ -115,19 +127,29 @@ public class StreamletsExecutor {
         long startTime = System.nanoTime();
         Policy policy = this.metadataService.getPolicyByStream(scope, stream);
         if (policy == null) {
-            // If there is no policy, just forward the storage to the next swarmlet or final destination.
+            // If there is no policy, just forward the storage to the next swarmlet or final
+            // destination and reset the context
             logger.warn("No policy set for scope/stream of object {}", multipartUpload.blobName());
             return payload;
         }
         StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
 
-        // Getting all streamlets that should be executed based on the applied policy and their metadata.
+        // Getting all streamlets that should be executed based
+        // on the applied policy and their metadata
         List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, true);
-        if (streamletsToBeExecuted.isEmpty()) {
-            // If there are no streamlets to be executed, forward the payload to the next swarmlet or final destination.
+        if (streamletsToBeExecuted.size() == 0) {
+            // If there are no streamlets to be executed, forward the payload to the next
+            // swarmlet or final destination.
             logger.warn("No streamlets to be executed {}", multipartUpload.blobName());
             return payload;
         }
+
+        // Due to the multipart function not having a blob, this temporary blob is
+        // passed as a dummy object to bypass the prop error. This will be resolved when
+        // the multipart support is implemented and all requests are normal PUTs
+        // TODO: remove this blob when multipart support is implemented
+        BlobStoreContext context = ContextBuilder.newBuilder("transient").build(BlobStoreContext.class);
+        Blob tempBlob = context.getBlobStore().blobBuilder("tempBlob").build();
 
         try {
             final long contentLength = payload.getContentMetadata().getContentLength();
@@ -135,7 +157,7 @@ public class StreamletsExecutor {
                 StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(
                         multipartUpload.blobName(), policy.getSystem(), multipartUpload.containerName());
                 InputStream processedContent = processRequestContent(streamPartition, contentLength, payload,
-                        streamletsToBeExecuted, true);
+                        streamletsToBeExecuted, true, policy, tempBlob);
                 logger.info("Successfully processed content based on {}", policy);
                 // Manually setting the processed payload length due to JClouds metadata checks
                 // Later down the multipart upload flow
@@ -159,17 +181,18 @@ public class StreamletsExecutor {
 
     private List<Streamlet> fillStreamletPipelineFromPolicy(Policy policy, boolean forwardStream) {
         try {
-            // Build the execution pipeline of streamlets based on the policy defined in this Region. For PUTs, the
-            // pipeline is executed left-to-right. For GETs, the pipeline execution is reversed.
+            // Build the execution pipeline of streamlets based on the policy defined in
+            // this Region. For PUTs, the
+            // pipeline is executed left-to-right. For GETs, the pipeline execution is
+            // reversed.
             Region currentRegion = this.metadataService.getNexusConfig().getRegion();
-            List<StreamletExecutionDescriptor> policyPipeline = forwardStream ?
-                    policy.getStreamletsForRegion(currentRegion) :
-                    policy.getStreamletsForRegion(currentRegion).reversed();
-            // Check if the streamlet is to be executed as per the request type and return the list of executable functions.
-            return policyPipeline.stream()
-                    .filter(s -> shouldExecuteStreamletOnRequest(s.getStreamlet(), forwardStream))
-                    .map(s -> this.functionSupplierMap.get(s.getStreamlet().getId()))
-                    .toList();
+            List<StreamletExecutionDescriptor> policyPipeline = forwardStream
+                    ? policy.getStreamletsForRegion(currentRegion)
+                    : policy.getStreamletsForRegion(currentRegion).reversed();
+            // Check if the streamlet is to be executed as per the request type and return
+            // the list of executable functions.
+            return policyPipeline.stream().filter(s -> shouldExecuteStreamletOnRequest(s.getStreamlet(), forwardStream))
+                    .map(s -> this.functionSupplierMap.get(s.getStreamlet().getId())).toList();
         } catch (Exception e) {
             logger.debug("Error finding streamlet from policy pipeline");
             throw new RuntimeException(e);
@@ -189,7 +212,7 @@ public class StreamletsExecutor {
     }
 
     private InputStream processRequestContent(StreamPartitionPojo streamPartition, long contentLength, Payload payload,
-            List<Streamlet> streamletsToBeExecuted, boolean forwardStream) {
+            List<Streamlet> streamletsToBeExecuted, boolean forwardStream, Policy policy, Blob blob) {
 
         final CompletableFuture<InputStream> streamletPipelineResult;
 
@@ -205,23 +228,27 @@ public class StreamletsExecutor {
             long startTime = System.nanoTime();
 
             streamletPipelineResult = buildStreamletExecutionPipeline(requestInputStream, streamletsToBeExecuted,
-                    scopedPartitionName, forwardStream);
+                    scopedPartitionName, forwardStream, policy, blob);
 
             StreamletsMetrics.PIPELINE_BUILD_TIMER.record(System.nanoTime() - startTime);
 
-            // In parallel, the main thread (IO thread pool) can write the storage operation to the log,
-            // whereas we schedule the execution of the function pipeline in the streamlet pool.
+            // In parallel, the main thread (IO thread pool) can write the storage operation
+            // to the log,
+            // whereas we schedule the execution of the function pipeline in the streamlet
+            // pool.
             storeAndProcessContent(contentLength, payload, requestInputStream, scopedPartitionName);
 
             this.durableLog.closeLogObject(scopedPartitionName);
-            // Important: we need to close the dynamicInputStream, so the streamlets know we completed reading.
+            // Important: we need to close the dynamicInputStream, so the streamlets know we
+            // completed reading.
             requestInputStream.close();
 
         } catch (IOException e) {
             logger.error("Error processing request's content");
             throw new RuntimeException(e);
         }
-        // If needed, wait for the streamlet pipeline processing result to use it to continue data routing.
+        // If needed, wait for the streamlet pipeline processing result to use it to
+        // continue data routing.
         return streamletPipelineResult.join();
     }
 
@@ -250,7 +277,13 @@ public class StreamletsExecutor {
     }
 
     private CompletableFuture<InputStream> buildStreamletExecutionPipeline(ByteBufferPipelineStream requestInputStream,
-            List<Streamlet> streamletsToBeExecuted, String streamPartition, boolean forwardStream) {
+            List<Streamlet> streamletsToBeExecuted, String streamPartition, boolean forwardStream, Policy policy,
+            Blob blob) {
+
+        // Instantiate a context for the pipeline
+        final ContextManager contextManager = ContextManager.getInstance();
+        RequestContext streamletContext = contextManager.createRequestStreamletContext(logger, policy, blob);
+
         // Start with the initial input wrapped in a CompletableFuture
         List<Map.Entry<ByteBufferPipelineStream, ByteBufferPipelineStream>> pipelineStreams = new ArrayList<>();
         Map.Entry<ByteBufferPipelineStream, ByteBufferPipelineStream> streamTuple = new AbstractMap.SimpleEntry<>(
@@ -263,16 +296,21 @@ public class StreamletsExecutor {
         List<CompletableFuture<Void>> pipeline = new ArrayList<>();
         int index = 0;
         AtomicReference<ByteBufferPipelineStream> resultStream = new AtomicReference<>();
+        // TODO: Support different types of events
         for (Streamlet streamlet : streamletsToBeExecuted) {
             ByteBufferPipelineStream input = pipelineStreams.get(index).getKey();
             ByteBufferPipelineStream output = pipelineStreams.get(index).getValue();
             index++;
-            // Based on the pipeline flow, execute each streamlet's PUT/GET accordingly.
-            BiConsumer<ByteBufferPipelineStream, ByteBufferPipelineStream> currentStreamlet = forwardStream
-                    ? streamlet::doPut : streamlet::doGet;
-            pipeline.add(CompletableFuture.runAsync(() -> currentStreamlet.accept(input, output), this.streamletExecutor));
+            // Based on the pipeline flow, execute each streamlet's PUT/GET correspondingly
+            BiConsumer<InputStreamRecord, StreamletContext> currentStreamlet = forwardStream ? streamlet::handlePut
+                    : streamlet::handleGet;
+
+            pipeline.add(CompletableFuture.runAsync(
+                    () -> currentStreamlet.accept(new InputStreamRecord(input, output), streamletContext),
+                    this.streamletExecutor));
             resultStream.set(output);
         }
+
         CompletableFuture<Void> combinedPipeline = Futures.allOf(pipeline);
         return this.taskScheduler.add(Collections.singletonList(streamPartition),
                 () -> combinedPipeline.thenApply(v -> resultStream.get()));

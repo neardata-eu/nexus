@@ -1,17 +1,13 @@
 package io.nexus.streamlets.state;
 
-import io.nexus.streamlets.state.backends.InMemoryStateBackend;
 import io.nexus.streamlets.state.backends.RocksDBStateBackend;
 import org.junit.jupiter.api.Test;
-
-import java.util.HashMap;
-import java.util.Map;
 
 public class StreamletStateSerializationMiniBenchmark {
 
     @Test
     public void testSerializationOverhead() {
-        StreamletStateBackend backend = new RocksDBStateBackend("/tmp/nexus"); //new InMemoryStateBackend();
+        StreamletStateBackend backend = new RocksDBStateBackend("/tmp/nexus"); // new InMemoryStateBackend();
         StreamletStateManager manager = new StreamletStateManager(backend);
 
         PersistentMapTestFunction myFunction = new PersistentMapTestFunction();
@@ -28,10 +24,10 @@ public class StreamletStateSerializationMiniBenchmark {
                 iniTime = System.nanoTime();
             }
         }
-        System.err.println("Total elapsed time (ms) managing streamlet state " +
-                (((System.nanoTime() - iniTime) / 1000000.0)));
-        System.err.println("Per iteration elapsed time (ms) managing streamlet state " +
-                (((System.nanoTime() - iniTime) / 1000000.0) / iterations));
+        System.err.println(
+                "Total elapsed time (ms) managing streamlet state " + (((System.nanoTime() - iniTime) / 1000000.0)));
+        System.err.println("Per iteration elapsed time (ms) managing streamlet state "
+                + (((System.nanoTime() - iniTime) / 1000000.0) / iterations));
 
     }
 
