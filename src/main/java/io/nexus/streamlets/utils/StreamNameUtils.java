@@ -1,16 +1,32 @@
 package io.nexus.streamlets.utils;
 
+import java.util.regex.Matcher;
+
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.MultipartUpload;
 
+import io.nexus.streamlets.StreamPartitionPojo;
+
 /**
- * We assume that the name structure of chunks of tiered stream data is of the
- * form scope/streamName/object.xxx
+ * Stream names are checked against each system's naming convention to affirm
+ * the current system and extract the needed metadata for Policy retrieval
+ * 
+ * For Kafka: <topicName>-<topicId>/<partitionNumber>/<logFile>. Example:
+ * topic1-NocMJpqTTtyKaFJDURStjg/0/00000000000000000000-zsj9DCIER9OaE0B3ZwcMpQ.log
+ * 
+ * For Pulsar: <ledgerFile>. Example:
+ * d536f64d-4a32-43e5-944e-b32e05e3c790-ledger-16
+ * 
+ * For Filesystem: <scope>/<stream>/<file>, Example: scope/stream/test.txt
  */
 public class StreamNameUtils {
 
-    public static final String STREAM_SEPARATOR = "/";
-    public static final String KAFKA_LOG_FILE_EXTENSION = ".log";
+    public static final String DEFAULT_STREAM_SEPARATOR = "/";
+    public static final String KAFKA_TOPIC_SEPARATOR = "-";
+
+    public enum Frameworks {
+        KAFKA, PULSAR, DEFAULT
+    }
 
     public static String getScopeFromRequest(MultipartUpload multipartUpload) {
         return getScopeFromChunkName(multipartUpload.blobName());
@@ -18,6 +34,7 @@ public class StreamNameUtils {
 
     public static String getStreamFromRequest(MultipartUpload multipartUpload) {
         return getStreamFromChunkName(multipartUpload.blobName());
+
     }
 
     public static String getStreamFromRequest(Blob blob) {
@@ -37,26 +54,58 @@ public class StreamNameUtils {
     }
 
     private static String getChunkNameComponent(String chunkName, int index) {
-        // Since the system is defined in the policy, and the policy is retrieved by
-        // scope/stream names, there is currently no way to know the streaming service
-        // **before policy retrieval** in order to get proper scope/stream names for
-        // each service.
-        // Currently supporting Kafka only
-        // TODO: Support other streaming services with Regex operations to determine the
-        // system
 
-        // In a Kafka testing environment, add
-        // (!chunkName.contains(KAFKA_LOG_FILE_EXTENSION))
         if (chunkName == null || chunkName.isEmpty()) {
             return null;
         }
 
-        String[] nameComponents = chunkName.split(STREAM_SEPARATOR);
+        Frameworks system = getSystemFromChunk(chunkName);
 
-        if (nameComponents.length < 2) {
+        String[] nameComponents;
+
+        switch (system) {
+        // Kafka and the filesystem use the same stream separator
+        case Frameworks.KAFKA:
+            nameComponents = chunkName.split(DEFAULT_STREAM_SEPARATOR);
+            if (nameComponents.length < 2) {
+                return null;
+            }
+            // If the scope is needed, extract the topic name from <topicName>-<randId>
+            return index == 0 ? nameComponents[0].split(KAFKA_TOPIC_SEPARATOR)[0] : nameComponents[index];
+
+        case Frameworks.PULSAR:
+            // Since Pulsar does not have a stream/scope identifier, it is expected to have
+            // a global Pulsar policy for the time being. The POJO will have stream and
+            // scope both set to "pulsar"
+            return "pulsar";
+
+        // This case is for filesystem experimentation and files other than Kafka's .log
+        // and Pulsar's ledger files
+        case Frameworks.DEFAULT:
+            nameComponents = chunkName.split(DEFAULT_STREAM_SEPARATOR);
+            if (nameComponents.length < 2) {
+                return null;
+            }
+            return nameComponents[index];
+
+        default:
             return null;
         }
-        // Return the immediate component before the stream name.
-        return nameComponents[index];
+    }
+
+    private static Frameworks getSystemFromChunk(String chunkName) {
+        Matcher matcher = StreamPartitionPojo.KAFKA_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        if (matcher.matches())
+            return Frameworks.KAFKA;
+
+        matcher = StreamPartitionPojo.PULSAR_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        if (matcher.matches())
+            return Frameworks.PULSAR;
+
+        matcher = StreamPartitionPojo.DEFAULT_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        if (matcher.matches())
+            return Frameworks.DEFAULT;
+
+        return null;
     }
 }

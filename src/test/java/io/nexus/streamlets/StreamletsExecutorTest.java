@@ -49,8 +49,8 @@ public class StreamletsExecutorTest {
         final String mockScopeName = "scope";
         final String mockStreamName = "stream";
         final String mockFile = "test.txt";
-        final String mockBlobName = mockScopeName + StreamNameUtils.STREAM_SEPARATOR + mockStreamName
-                        + StreamNameUtils.STREAM_SEPARATOR + mockFile;
+        final String mockBlobName = mockScopeName + StreamNameUtils.DEFAULT_STREAM_SEPARATOR + mockStreamName
+                        + StreamNameUtils.DEFAULT_STREAM_SEPARATOR + mockFile;
 
         // Mock StreamletDescriptor constants
         final StreamletDescriptor mockPutStreamlet = new StreamletDescriptor("noop-1", ExecuteOn.ALL, Hardware.NONE,

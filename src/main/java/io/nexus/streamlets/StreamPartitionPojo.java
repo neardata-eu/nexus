@@ -6,11 +6,16 @@ import java.util.regex.Pattern;
 
 public class StreamPartitionPojo {
 
-    // Kafka's pattern follows the default pattern, up to three directories
-    public final static Pattern KAFKA_PARTITION_OBJECT_PATTERN = Pattern
-            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
     public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN = Pattern
             .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
+
+    // Kafka's pattern follows the default pattern, up to three directories, with
+    // .log object
+    public final static Pattern KAFKA_PARTITION_OBJECT_PATTERN = Pattern
+            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.log)$");
+
+    public final static Pattern PULSAR_PARTITION_OBJECT_PATTERN = Pattern
+            .compile("^([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-ledger-([0-9]+)$");
 
     public final String container;
     public final String scope;
@@ -62,14 +67,14 @@ public class StreamPartitionPojo {
         return null;
     }
 
-    // TODO: Do this for real
     public static StreamPartitionPojo buildStreamPartitionPojoFromPulsarRequestPath(
             String fullyQualifiedPulsarRequestPath, String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPulsarRequestPath);
         if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1), matcher.group(2),
-                    matcher.group(3), matcher.group(4));
-            System.err.println(pojo);
+            // Since Pulsar does not have a stream/scope identifier, it is expected to have
+            // a global Pulsar policy for the time being.
+            StreamPartitionPojo pojo = new StreamPartitionPojo(container, "pulsar", "pulsar", "0",
+                    fullyQualifiedPulsarRequestPath);
             return pojo;
         }
 
