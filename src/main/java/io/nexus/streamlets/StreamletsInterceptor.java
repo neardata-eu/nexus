@@ -247,6 +247,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
                 // 4.2 Store the PUT contents in S3 and reply to the client.
                 Blob newBlob = this.blobBuilder(blob.getMetadata().getName())
                         .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
+                        // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
+                        //  that change the length of the request when processed in streaming fashion.
                         .contentLength(blob.getPayload().getContentMetadata().getContentLength())
                         .contentType(blob.getPayload().getContentMetadata().getContentType())
                         .build();
@@ -402,7 +404,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
             logger.info("Aborting multipart interception for non-log/ledger blob: {}", mpu.blobName());
             super.abortMultipartUpload(mpu);
             return;
-        } 
+        }
 
         MultiPartUploadState uploadState = this.multipartUploads.get(mpu.id());
         if (uploadState == null || !uploadState.getUploadId().equals(mpu.id())) {
