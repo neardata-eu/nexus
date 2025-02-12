@@ -6,8 +6,9 @@ import java.util.regex.Pattern;
 
 public class StreamPartitionPojo {
 
+    // This regex is for experimental .txt files only
     public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN = Pattern
-            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+)$");
+            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.txt)$");
 
     // Kafka's pattern follows the default pattern, up to three directories, with
     // .log object
@@ -64,7 +65,7 @@ public class StreamPartitionPojo {
 
     public static StreamPartitionPojo buildStreamPartitionPojoFromPulsarRequestPath(
             String fullyQualifiedPulsarRequestPath, String container) {
-        Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPulsarRequestPath);
+        Matcher matcher = PULSAR_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPulsarRequestPath);
         if (matcher.matches()) {
             // Since Pulsar does not have a stream/scope identifier, it is expected to have
             // a global Pulsar policy for the time being.

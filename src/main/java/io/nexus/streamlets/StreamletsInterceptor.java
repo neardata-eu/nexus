@@ -201,6 +201,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
+        if (StreamNameUtils.getSystemFromChunk(blob.getMetadata().getName()) == null) {
+            logger.info("Skipping PUT interception for non-log/ledger blob: {}", blob.getMetadata().getName());
+            return super.putBlob(containerName, blob, putOptions);
+        }
+
         logger.info("PUT request for {} / {}.", containerName, blob.getMetadata().getName());
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
@@ -242,8 +247,6 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
                 // 4.2 Store the PUT contents in S3 and reply to the client.
                 Blob newBlob = this.blobBuilder(blob.getMetadata().getName())
                         .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
-                        // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
-                        //  that change the length of the request when processed in streaming fashion.
                         .contentLength(blob.getPayload().getContentMetadata().getContentLength())
                         .contentType(blob.getPayload().getContentMetadata().getContentType())
                         .build();
@@ -268,6 +271,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
+        if (StreamNameUtils.getSystemFromChunk(blobName) == null) {
+            logger.info("Skipping GET interception for non-log/ledger blob: {}", blobName);
+            return super.getBlob(containerName, blobName, getOptions);
+        }
+
         logger.info("GET request for {} / {}.", containerName, blobName);
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
@@ -354,6 +362,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
+        if (StreamNameUtils.getSystemFromChunk(blobMetadata.getName()) == null){
+            logger.info("Skipping multipart upload interception for non-log/ledger blob: {}", blobMetadata.getName());
+            return super.initiateMultipartUpload(container, blobMetadata, options);
+        }
+
         this.logger.info("Multipart upload initiated for file {}", blobMetadata.getName());
         // Generate a unique upload ID.
         String uploadId = UUID.randomUUID().toString();
@@ -366,6 +379,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
+        if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null){
+            logger.info("Continuing multipart interception skips...");
+            return super.uploadMultipartPart(mpu, partNumber,payload);
+        }
+
         logger.info("Uploading part {} for multi-part upload {}.", partNumber, mpu.id());
         MultiPartUploadState uploadState = this.multipartUploads.get(mpu.id());
         if (uploadState == null || !uploadState.getUploadId().equals(mpu.id())) {
@@ -380,6 +398,12 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
+        if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null){
+            logger.info("Aborting multipart interception for non-log/ledger blob: {}", mpu.blobName());
+            super.abortMultipartUpload(mpu);
+            return;
+        } 
+
         MultiPartUploadState uploadState = this.multipartUploads.get(mpu.id());
         if (uploadState == null || !uploadState.getUploadId().equals(mpu.id())) {
             throw new IllegalStateException("Upload ID not found or not matching");
@@ -392,13 +416,18 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+        if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null) {
+            logger.info("Completely skipped multipart upload interception for non-log/ledger blob: {}", mpu.blobName());
+            return super.completeMultipartUpload(mpu, parts);
+        }
+
         MultiPartUploadState uploadState = this.multipartUploads.get(mpu.id());
         if (uploadState == null || !uploadState.getUploadId().equals(mpu.id())) {
             throw new IllegalStateException("Upload ID not found or not matching");
         }
         // Create the PUT request from the completed multipart upload.
         initiatePutRequestFromMultipartUpload(uploadState);
-        // Tansfer the data from all the parts to the output stream related to the PUT request.
+        // Transfer the data from all the parts to the output stream related to the PUT request.
         uploadState.transferMultiPartContentsToPutRequest();
         // Wait until the PUT request completes to make sure we can reply to the client.
         uploadState.completeUpload();
@@ -409,6 +438,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
 
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+        if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null ) {
+            logger.info("Skipping interception for non-log/ledger blob: {}", mpu.blobName());
+            return super.listMultipartUpload(mpu);
+        }
+
         MultiPartUploadState state = this.multipartUploads.get(mpu.id());
         if (state == null) {
             return Collections.emptyList(); // No active upload found
