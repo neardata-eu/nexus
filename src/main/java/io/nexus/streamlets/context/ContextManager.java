@@ -1,7 +1,5 @@
 package io.nexus.streamlets.context;
 
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
 import org.slf4j.Logger;
 import io.nexus.streamlets.metadata.Policy;
 
@@ -18,9 +16,7 @@ public class ContextManager {
 
     private static final ContextManager instance = new ContextManager();
 
-    private ContextManager() {
-
-    }
+    private ContextManager() {}
 
     public static ContextManager getInstance() {
         return instance;
@@ -31,35 +27,9 @@ public class ContextManager {
      *
      * @param logger the Logger instance of the execution
      * @param policy the current working Policy
-     * @param blob   the Blob instance for the request context
      * @return a new RequestContext instance.
      */
-    public RequestContext createRequestStreamletContext(Logger logger, Policy policy, Blob blob) {
-        return new RequestContext(logger, policy, blob);
+    public RequestContext createRequestStreamletContext(Logger logger, Policy policy) {
+        return new RequestContext(logger, policy);
     }
-
-    /**
-     * Creates and returns a new MultipartContext instance.
-     *
-     * @param logger       the Logger instance of the execution
-     * @param policy       the current working Policy
-     * @param scope        the current scope
-     * @param stream       the current stream identifier
-     * @param blobMetadata the BlobMetadata for the multipart event
-     * @return a new MultipartContext instance.
-     */
-    public MultipartContext createMultipartStreamletContext(Logger logger, Policy policy, BlobMetadata blobMetadata) {
-        return new MultipartContext(logger, policy, blobMetadata);
-    }
-
-    // RequestContext package-specific methods
-    public void setContextPolicy(RequestContext requestContext, Policy policy) {
-        requestContext.setPolicy(policy);
-    }
-
-    // MultipartContext package-specific methods
-    public void setContextPolicy(MultipartContext multipartContext, Policy policy) {
-        multipartContext.setPolicy(policy);
-    }
-
 }

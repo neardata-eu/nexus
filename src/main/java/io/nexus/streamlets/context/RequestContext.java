@@ -5,33 +5,25 @@ import org.slf4j.Logger;
 import io.nexus.streamlets.metadata.Policy;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-import org.jclouds.blobstore.domain.Blob;
-
-// A class for handling the context for normal PUT and GET requests 
+/**
+ * A class for handling the context for normal PUT and GET requests
+ */
 public class RequestContext implements StreamletContext {
-    private Logger logger;
-    private Policy policy;
-    private Blob blob;
+    private final Logger logger;
+    private final Policy policy;
+    private final Map<String, String> metadata;
 
-    public RequestContext() {
-
-    }
-
-    public RequestContext(Logger logger, Policy policy, Blob blob) {
+    public RequestContext(Logger logger, Policy policy) {
         this.logger = logger;
         this.policy = policy;
-        this.blob = blob;
+        this.metadata = new ConcurrentHashMap<>();
     }
 
     @Override
     public Policy getPolicy() {
         return policy;
-    }
-
-    // Package-specific
-    void setPolicy(Policy policy) {
-        this.policy = policy;
     }
 
     @Override
@@ -41,22 +33,17 @@ public class RequestContext implements StreamletContext {
 
     @Override
     public String putUserMetadata(String key, String value) {
-        Map<String, String> metadata = this.blob.getMetadata().getUserMetadata();
-        String response = metadata.put(key.toLowerCase(), value.toLowerCase());
-        blob.getMetadata().setUserMetadata(metadata);
-
-        return response;
+        return this.metadata.put(key.toLowerCase(), value.toLowerCase());
     }
 
     @Override
     public String getUserMetadata(String key) {
-        Map<String, String> metadata = blob.getMetadata().getUserMetadata();
         // Return the value associated with the key, or null if the key does not exist
-        return metadata.getOrDefault(key.toLowerCase(), null);
+        return this.metadata.getOrDefault(key.toLowerCase(), null);
     }
 
     @Override
     public String toString() {
-        return "{ logger='" + logger + "', policy='" + policy + "', blobName='" + blob.getMetadata().getName() + "'}";
+        return "{ logger='" + logger + "', policy='" + policy + " }";
     }
 }

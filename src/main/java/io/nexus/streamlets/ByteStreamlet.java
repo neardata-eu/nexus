@@ -4,29 +4,35 @@ import io.nexus.streamlets.context.StreamletContext;
 import io.nexus.streamlets.utils.StreamletIO;
 
 /**
- * The Streamlet interface defines the contract for handling input streams in two different ways: via PUT and GET
- * operations. Classes that implement this interface must provide their own implementation for handling these operations.
+ * A Streamlet that processes raw byte streams. Implementing classes must define how bytes are processed.
  */
-public interface Streamlet {
+public abstract class ByteStreamlet implements Streamlet {
 
     /**
-     * Handles a PUT operation on the given input stream record. Implementing classes should define the specific logic
-     * for handling the PUT operation.
+     * Processes raw byte streams in PUT requests.
      *
      * @param dataStreams   The input and output data streams to be processed during the PUT operation.
      * @param context       The context in which the PUT operation is being handled, providing the user with read access
      *                      to the context information, alongside read/write access to the blob's user metadata.
      */
-    public void handlePut(StreamletIO dataStreams, StreamletContext context);
+    protected abstract void processPutBytes(StreamletIO dataStreams, StreamletContext context);
 
     /**
-     * Handles a GET operation on the given input stream record. Implementing classes should define the specific logic
-     * for handling the GET operation.
+     * Processes raw byte streams in GET requests.
      *
      * @param dataStreams   The input and output data streams to be processed during the GET operation.
      * @param context       The context in which the GET operation is being handled, providing the user with read access
      *                      to the context information, alongside read/write access to the blob's user metadata.
      */
-    public void handleGet(StreamletIO dataStreams, StreamletContext context);
+    protected abstract void processGetBytes(StreamletIO dataStreams, StreamletContext context);
 
+    @Override
+    public final void handlePut(StreamletIO dataStreams, StreamletContext context) {
+        processPutBytes(dataStreams, context);
+    }
+
+    @Override
+    public final void handleGet(StreamletIO dataStreams, StreamletContext context) {
+        processGetBytes(dataStreams, context);
+    }
 }

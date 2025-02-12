@@ -40,31 +40,26 @@ public class StreamPartitionPojo {
 
     public static StreamPartitionPojo getStreamPartitionPojo(String objectPath, String streamingSystem,
             String container) {
-        switch (streamingSystem) {
-        case "kafka":
-            return buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
-        case "pulsar":
-            return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
-        case "pravega":
-            return buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
-        default:
-            // This is useful for testing without having to run a streaming system.
-            return buildDefaultStreamPartitionPojoFromRequestPath(objectPath, container);
-        }
+        return switch (streamingSystem) {
+            case "kafka" -> buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
+            case "pulsar" -> buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
+            default ->
+                // This is useful for testing without having to run a streaming system.
+                    buildDefaultStreamPartitionPojoFromRequestPath(objectPath, container);
+        };
     }
 
     public static StreamPartitionPojo buildStreamPartitionPojoFromKafkaRequestPath(
             String fullyQualifiedKafkaRequestPath, String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedKafkaRequestPath);
         if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo(container, matcher.group(1), matcher.group(2),
-                    matcher.group(2), matcher.group(3));
 
-            return pojo;
+            return new StreamPartitionPojo(container, matcher.group(1), matcher.group(2),
+                    matcher.group(2), matcher.group(3));
         }
 
         // The object doesn't match the pattern.
-        return null;
+        throw new MalformedStreamStorageRequestException("Kafka request not matching pattern.");
     }
 
     public static StreamPartitionPojo buildStreamPartitionPojoFromPulsarRequestPath(
@@ -73,28 +68,12 @@ public class StreamPartitionPojo {
         if (matcher.matches()) {
             // Since Pulsar does not have a stream/scope identifier, it is expected to have
             // a global Pulsar policy for the time being.
-            StreamPartitionPojo pojo = new StreamPartitionPojo(container, "pulsar", "pulsar", "0",
+            return new StreamPartitionPojo(container, "pulsar", "pulsar", "0",
                     fullyQualifiedPulsarRequestPath);
-            return pojo;
         }
 
         // The object doesn't match the pattern.
-        return null;
-    }
-
-    // TODO: Do this for real
-    public static StreamPartitionPojo buildStreamPartitionPojoFromPravegaRequestPath(
-            String fullyQualifiedPravegaRequestPath, String container) {
-        Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPravegaRequestPath);
-        if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo("test-bucket", matcher.group(1), matcher.group(2),
-                    matcher.group(3), matcher.group(4));
-            System.err.println(pojo);
-            return pojo;
-        }
-
-        // The object doesn't match the pattern.
-        return null;
+        throw new MalformedStreamStorageRequestException("Pulsar request not matching pattern.");
     }
 
     public static StreamPartitionPojo buildDefaultStreamPartitionPojoFromRequestPath(String fullyQualifiedRequestPath,
