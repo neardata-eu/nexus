@@ -76,7 +76,7 @@ public class MetadataServiceTest {
         String id = "test";
         String key = "streamletdescriptor:" + id;
         StreamletDescriptor expectedDescriptor = new StreamletDescriptor(id, StreamletDescriptor.ExecuteOn.ALL,
-                Hardware.GPU, true);
+                Hardware.GPU, true, true);
 
         metadataService.streamletCache.put(key, expectedDescriptor);
 

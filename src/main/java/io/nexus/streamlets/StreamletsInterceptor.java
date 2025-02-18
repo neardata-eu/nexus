@@ -1,7 +1,5 @@
 package io.nexus.streamlets;
 
-import com.google.common.net.HttpHeaders;
-
 import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
@@ -10,12 +8,8 @@ import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.metadata.Region;
 import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
-import io.nexus.streamlets.utils.FastPipedInputStream;
-import io.nexus.streamlets.utils.FastPipedOutputStream;
-import io.nexus.streamlets.utils.MultiPartUploadState;
-import io.nexus.streamlets.utils.StreamNameUtils;
-import io.pravega.common.concurrent.ExecutorServiceHelpers;
 
+import io.nexus.streamlets.utils.*;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -39,35 +33,28 @@ import org.jclouds.io.Payloads;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 
 /**
  * S3 Proxy middleware that intercepts storage requests and injects them into {@link StreamletsExecutor}.
  */
-public class StreamletsInterceptor extends ForwardingBlobStore {
+public class StreamletsInterceptor extends ForwardingBlobStore implements Closeable {
 
-    private static final String HTTP_URL_PREFIX = "http://";
-    final Logger logger = LoggerFactory.getLogger(StreamletsInterceptor.class);
+    private final Logger logger = LoggerFactory.getLogger(StreamletsInterceptor.class);
     private final StreamletsExecutor streamletsExecutor;
     private final MetadataService metadataService;
     private final ConcurrentHashMap<String, MultiPartUploadState> multipartUploads;
-    private final ScheduledExecutorService dataTransferExecutor;
+    private final ContextManager contextManager;
+    private final RequestManager requestManager;
 
     private enum InterSwarmletRoutingType {
         INTRA_REGION,
@@ -80,7 +67,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
         this.metadataService = metadataService;
         this.streamletsExecutor = new StreamletsExecutor(metadataService);
         this.multipartUploads = new ConcurrentHashMap<>();
-        this.dataTransferExecutor = ExecutorServiceHelpers.newScheduledThreadPool(40, "data-transfer-threadpool");
+        this.contextManager = ContextManager.getInstance();
+        this.requestManager = new RequestManager(this);
     }
 
     @Override
@@ -226,12 +214,15 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
             // of the Streamlets in this Region (if any) checking first that we have the right hardware available.
             Region currentRegion = this.metadataService.getNexusConfig().getRegion();
             Hardware availableHardware = this.metadataService.getNexusConfig().getHardware();
+            // Instantiate a context for the pipeline
+            RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy);
+            streamletContext.addTransformerStreamletsToMetadata(currentRegion);
             // These streams connect with the output of the Streamlet pipeline, so we can perform forward async.
             InputStream streamletInput = blob.getPayload().openStream();
             FastPipedOutputStream streamletOutput = new FastPipedOutputStream();
             InputStream streamletOutputInputStream = new FastPipedInputStream(streamletOutput);
             CompletableFuture<Void> pipelineFuture = tryProcess(policy, currentRegion, availableHardware,
-                    streamPartition, streamletInput, true, streamletOutput);
+                    streamPartition, streamletInput, true, streamletOutput, streamletContext);
             // 3. We may have executed some Streamlets or not. At this point, we need to infer the next Swarmlet for the
             // request. We may need to forward it to another Swarmlet within the same Region (Intra-Swarmlet Routing) due to
             // lack of hardware. Or we may need to just forward the request to the next Region (e.g., EDGE, CLOUD), if any.
@@ -240,8 +231,9 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
             // the data in the final destination (e.g., S3 bucket).
             String nextSwarmletEndpoint = nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
             if (nextSwarmletEndpoint != null) {
-                // 4.1 Route the PUT request to the next Nexus Swarmlet.
-                forwardPutRequest(nextSwarmletEndpoint, containerName, blob, streamletOutputInputStream).join();
+                // 4.1 Route the PUT request to the next Nexus Swarmlet and update the metadata in storage.
+                this.requestManager.forwardPutRequest(nextSwarmletEndpoint, containerName, blob, streamletOutputInputStream)
+                        .thenCompose(v -> this.requestManager.updateMetadataAsync(containerName, blob.getMetadata().getName(), streamletContext)).join();
                 throw new ForwardedRequestException("Request forwarded to " + nextSwarmletEndpoint);
             } else {
                 // 4.2 Store the PUT contents in S3 and reply to the client.
@@ -254,7 +246,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
                         .build();
                 String eTag = (putOptions == null) ? super.putBlob(containerName, newBlob) :
                         super.putBlob(containerName, newBlob, putOptions);
-                pipelineFuture.join();
+                // If there is user metadata, store it as tags in the object after the object is already stored.
+                pipelineFuture.thenCompose(v -> this.requestManager.updateMetadataAsync(containerName, blob.getMetadata().getName(), streamletContext)).join();
                 return eTag;
             }
         } catch (ForwardedRequestException e) {
@@ -281,25 +274,39 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
         logger.info("GET request for {} / {}.", containerName, blobName);
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
-        StreamPartitionPojo streamPartition;
+        Region currentRegion = this.metadataService.getNexusConfig().getRegion();
+        Hardware availableHardware = this.metadataService.getNexusConfig().getHardware();
         try {
             policy = checkRequestAndRetrievePolicy(containerName, blobName);
-            // TODO: Get the partition name correctly.
-            streamPartition = StreamPartitionPojo.getStreamPartitionPojo(blobName, policy.getSystem(), containerName);
-        } catch (MalformedStreamStorageRequestException | NoPolicySetException e) {
-            // Either the request is malformed or there are no policies, so just execute operation against S3 endpoint.
+        } catch (MalformedStreamStorageRequestException mssre) {
+            logger.warn("Malformed GET request {}, executing against S3 storage.", blobName);
+            // If the request is malformed execute operation against S3 endpoint.
             return super.getBlob(containerName, blobName, getOptions);
+        } catch (NoPolicySetException npse) {
+            // No policy in metadata, but we need to check for transformer Streamlets in this object.
+            Blob headersBlob = super.getBlob(containerName, blobName, getOptions);
+            List<String> transformerStreamlets = ObjectTagsUtils.getTransformerStreamletsFromRequest(
+                    headersBlob.getAllHeaders(), currentRegion);
+            if (!transformerStreamlets.isEmpty()) {
+                logger.info("No policy set for {} / {}, but the object was processed by transformer Streamlets [{}].",
+                        containerName, blobName, transformerStreamlets.stream().collect(Collectors.joining(",")));
+                policy = Policy.createMockPolicyForLegacyTransformerStreamlets(transformerStreamlets, currentRegion, this.metadataService);
+            } else {
+                // Plain object with no Streamlet transformations, so just execute operation against S3 endpoint.
+                logger.info("No policy set for {} / {} and no transformer streamlets either", containerName, blobName);
+                return headersBlob;
+            }
         } catch (Exception ex) {
             // Unexpected error, rethrow.
             throw new RuntimeException(ex);
         }
+        StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(blobName, policy.getSystem(), containerName);
 
         try {
             // 2. For GETs, we need to check if we are the final Region, because the processing goes backwards. In other
-            // words, we get what is the next Swarmlet in the pipeline.
-            Region currentRegion = this.metadataService.getNexusConfig().getRegion();
-            Hardware availableHardware = this.metadataService.getNexusConfig().getHardware();
-            String nextSwarmletEndpoint = nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+            // words, we get what is the next Swarmlet in the pipeline. For mock policies we do not apply routing.
+            String nextSwarmletEndpoint = policy.isMock() ? null :
+                    nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
 
             // 3. If we are the right Swarmlet in the final Region, we can proceed with the GET to the actual storage. If
             // not, we need to forward the request to the next Swarmlet before doing or own processing.
@@ -308,15 +315,17 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
             InputStream streamletOutputInputStream = new FastPipedInputStream(streamletOutput);
             FastPipedOutputStream streamletInputOutputStream = new FastPipedOutputStream();
             streamletInput = new FastPipedInputStream(streamletInputOutputStream);
+            RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy);
             CompletableFuture<Void> getFuture = (nextSwarmletEndpoint != null) ?
-                forwardGetRequest(nextSwarmletEndpoint, containerName, blobName, streamletInputOutputStream) :
-                doAsyncGetRequest(containerName, blobName, getOptions, streamletInputOutputStream);
+                this.requestManager.forwardGetRequest(nextSwarmletEndpoint, containerName, blobName, streamletInputOutputStream, streamletContext) :
+                this.requestManager.doAsyncGetRequest(containerName, blobName, getOptions, streamletInputOutputStream, streamletContext);
             // 4. Try to execute the reverse Streamlets in our Region, if we are the right Swarmlet instance.
             CompletableFuture<Void> transfersFuture = CompletableFuture.allOf(getFuture, tryProcess(policy, currentRegion,
-                    availableHardware, streamPartition, streamletInput, false, streamletOutput))
+                    availableHardware, streamPartition, streamletInput, false, streamletOutput, streamletContext))
                     .thenRun(() -> closeStreams(streamletInput, streamletOutputInputStream, streamletOutput));
             Blob resultBlob = super.blobBuilder(blobName)
                     .payload(streamletOutputInputStream)
+                    .userMetadata(streamletContext.getUserMetadataCopy())
                     .build();
             // This metadata is needed by S3 proxy handler.
             resultBlob.getMetadata().setLastModified(new Date());
@@ -428,7 +437,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
             throw new IllegalStateException("Upload ID not found or not matching");
         }
         // Create the PUT request from the completed multipart upload.
-        initiatePutRequestFromMultipartUpload(uploadState);
+        this.requestManager.initiatePutRequestFromMultipartUpload(uploadState);
         // Transfer the data from all the parts to the output stream related to the PUT request.
         uploadState.transferMultiPartContentsToPutRequest();
         // Wait until the PUT request completes to make sure we can reply to the client.
@@ -501,27 +510,29 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
         return super.toString();
     }
 
+    @Override
+    public void close() throws IOException {
+        this.requestManager.close();
+    }
+
     // end region
 
     // being private methods region
 
     private CompletableFuture<Void> tryProcess(Policy policy, Region currentRegion, Hardware availableHardware,
                                                StreamPartitionPojo streamPartition, InputStream streamletInput, boolean isPut,
-                                               OutputStream streamletResult) {
+                                               OutputStream streamletResult, RequestContext streamletContext) {
         if (policy.canSwarmletExecuteStreamlets(currentRegion, availableHardware)) {
             // We are in the right Swarmlet, process the request.
-            return doProcess(policy, streamPartition, streamletInput, isPut, streamletResult);
+            return doProcess(policy, streamPartition, streamletInput, isPut, streamletResult, streamletContext);
         }
-        return null;
+        return CompletableFuture.completedFuture(null);
     }
 
     private CompletableFuture<Void> doProcess(Policy policy, StreamPartitionPojo streamPartition, InputStream streamletInput,
-                                              boolean isPut, OutputStream streamletResult) {
+                                              boolean isPut, OutputStream streamletResult, RequestContext streamletContext) {
         try {
             long startTime = System.nanoTime();
-            // Instantiate a context for the pipeline
-            final ContextManager contextManager = ContextManager.getInstance();
-            RequestContext streamletContext = contextManager.createRequestStreamletContext(logger, policy);
             return this.streamletsExecutor.processRequest(policy, streamPartition, streamletInput, isPut, streamletContext, streamletResult)
                     .thenRun(() -> { // Record processing time metrics after once processing completes.
                         TimerMetric timer = isPut ? StreamletsMetrics.PUT_REQUEST_TIMER : StreamletsMetrics.GET_REQUEST_TIMER;
@@ -546,12 +557,15 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
     }
 
     /**
-     * This method takes
+     * Determines the next Swarmlet routing endpoint based on the given policy, current region, and available hardware.
+     * This method decides whether to forward the request to a Swarmlet in a different region (inter-region routing)
+     * or within the same region (intra-region routing). If no suitable Swarmlet is found, an exception is thrown.
      *
-     * @param policy
-     * @param currentRegion
-     * @param availableHardware
-     * @return
+     * @param policy           The routing policy defining Streamlet pipeline, regions, and hardware requirements.
+     * @param currentRegion    The current region where the request is being processed.
+     * @param availableHardware The hardware available in the current region for execution.
+     * @return The next Swarmlet endpoint URL for routing, ensuring it ends with a trailing slash.
+     * @throws NoSuitableSwarmletInRegionException If no Swarmlet meets the required hardware constraints in the selected region.
      */
     private String nextSwarmletRoutingEndpoint(Policy policy, Region currentRegion, Hardware availableHardware) {
         String nextSwarmletEndpoint = null;
@@ -642,144 +656,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore {
         return policy;
     }
 
-    /**
-     * Forward a GET request and retrieve the blob.
-     *
-     * @param targetServerUrl The endpoint to forward the GET request.
-     * @param container The container name.
-     * @param blobName  The blob name to forward.
-     * @return A CompletableFuture representing the operation and the retrieved blob.
-     */
-    private CompletableFuture<Void> forwardGetRequest(String targetServerUrl, String container, String blobName, OutputStream getContents) {
-        return CompletableFuture.runAsync(() -> {
-        try {
-            // Construct the target URL
-            String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ?
-                    HTTP_URL_PREFIX + targetServerUrl : targetServerUrl;
-            String targetUrl = curatedTargetURL + container + "/" + blobName;
-            URL url = new URL(targetUrl);
-            logger.info("Starting forward GET to {}.", targetUrl);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-
-            // Handle the response
-            int responseCode = connection.getResponseCode();
-            if (responseCode >= 200 && responseCode < 300) {
-                // Read the response body and construct a blob
-                InputStream inputStream = connection.getInputStream();
-                long transferredBytes = inputStream.transferTo(getContents);
-                logger.info("Completed forward GET to {}, available bytes {}", targetUrl, transferredBytes);
-            } else {
-                throw new RuntimeException("Failed to forward request, HTTP code: " + responseCode);
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Error while forwarding request", e);
-        }
-
-        }, this.dataTransferExecutor);
-    }
-
-    /**
-     * Forward PUT requests asynchronously.
-     *
-     * @param targetServerUrl    Target server URL.
-     * @param container The container name.
-     * @param blob      The blob to forward.
-     * @return A CompletableFuture representing the operation.
-     */
-    private CompletableFuture<Void> forwardPutRequest(String targetServerUrl, String container, Blob blob,
-                                                      InputStream processedContent) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                // Construct the target URL
-                String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ?
-                        HTTP_URL_PREFIX + targetServerUrl : targetServerUrl;
-                String targetUrl = curatedTargetURL + container + "/" + blob.getMetadata().getName();
-                long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
-                logger.info("Started forwarding PUT ({} bytes) to {}.", contentLength, targetUrl);
-                URL url = new URL(targetUrl);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("PUT");
-                connection.setDoOutput(true);
-
-                // Set headers from blob metadata
-                blob.getMetadata().getUserMetadata().forEach(connection::setRequestProperty);
-                connection.setRequestProperty(HttpHeaders.CONTENT_TYPE,
-                        blob.getMetadata().getContentMetadata().getContentType());
-                connection.setRequestProperty(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength));
-
-                // Write the payload
-                try (OutputStream outputStream = connection.getOutputStream()) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    long totalBytesForwarded = 0;
-                    long startTime = System.currentTimeMillis();
-                    while ((bytesRead = processedContent.read(buffer)) != -1) {
-                        outputStream.write(buffer, 0, bytesRead);
-                        totalBytesForwarded += bytesRead;
-                    }
-                    logger.info("Completed PUT forward with {} MBps of {}", (totalBytesForwarded / (1024.0 * 1024.0)) /
-                            ((System.currentTimeMillis() - startTime) / 1000.0), targetUrl);
-                }
-                // Handle the response
-                int responseCode = connection.getResponseCode();
-                if (responseCode < 200 || responseCode >= 300) {
-                    throw new RuntimeException("Failed to forward request, HTTP code: " + responseCode);
-                }
-                logger.info("Completed forward PUT to {}", targetUrl);
-            } catch (Exception e) {
-                throw new RuntimeException("Error while forwarding request", e);
-            }
-        }, this.dataTransferExecutor);
-    }
-
-    private void initiatePutRequestFromMultipartUpload(MultiPartUploadState uploadState) {
-        // Check if this is the first part for this upload.
-        if (uploadState.isUploadInitialized().compareAndSet(false, true)) {
-            logger.info("Creating blob metadata {}.", uploadState.getUploadId());
-            // Create a blob with the metadata from the original request
-            Blob blob = this.blobBuilder(uploadState.getBlobMetadata().getName())
-                    .payload(Payloads.newInputStreamPayload(uploadState.getInputStream()))
-                    .contentLength(uploadState.getMultipartUploadSize())
-                    .contentType(uploadState.getBlobMetadata().getContentMetadata().getContentType())
-                    .build();
-
-            // The first time that we upload a part, in addition to transferring the data, we have to initiate the PUT.
-            uploadState.setPutRequest(CompletableFuture.runAsync(() ->
-                            this.putBlob(uploadState.getContainer(), blob), this.dataTransferExecutor)
-                    .exceptionally(ex -> {
-                        // The created PUT may need to be forwarded, which is fine.
-                        if (ex.getCause() instanceof ForwardedRequestException) {
-                            logger.info("Multi-part upload to be forwarded, continue as normal.");
-                            return null;
-                        } else {
-                            throw new RuntimeException(ex);
-                        }
-                    }));
-        }
-    }
-
-    private CompletableFuture<Void> doAsyncGetRequest(String containerName, String blobName, GetOptions getOptions,
-                                                      OutputStream streamletInputOutputStream) {
-        return CompletableFuture.runAsync(() -> {
-            Blob proxyBlob = (getOptions == null) ? super.getBlob(containerName, blobName) :
-                    super.getBlob(containerName, blobName, getOptions);
-            try {
-                int readBytes;
-                byte[] content = new byte[16 * 1024];
-                InputStream is = proxyBlob.getPayload().openStream();
-                while ((readBytes = is.read(content)) != -1) {
-                    streamletInputOutputStream.write(content, 0, readBytes);
-                }
-                is.close();
-                streamletInputOutputStream.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }, this.dataTransferExecutor);
-    }
-
-    public static void closeStreams(AutoCloseable... streams) {
+    private static void closeStreams(AutoCloseable... streams) {
         Exception firstException = null;
         for (AutoCloseable stream : streams) {
             if (stream != null) {

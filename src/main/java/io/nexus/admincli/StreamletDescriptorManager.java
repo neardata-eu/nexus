@@ -66,6 +66,7 @@ public class StreamletDescriptorManager {
 
         streamletDescriptor.setExecuteOn(inputExecuteOn(scanner));
         streamletDescriptor.setPartitionLocality(inputPartitionLocality(scanner));
+        streamletDescriptor.setTransformsContent(inputTransformsContent(scanner));
         streamletDescriptor.setHardware(inputHardware(scanner));
 
         // Validations and storage
@@ -210,7 +211,15 @@ public class StreamletDescriptorManager {
     }
 
     private static Boolean inputPartitionLocality(Scanner scanner) {
-        System.out.println("Benefits from partition locality? (Y/N)");
+        return inputBoolean(scanner, "Benefits from partition locality? (Y/N)");
+    }
+
+    private static Boolean inputTransformsContent(Scanner scanner) {
+        return inputBoolean(scanner, "Transforms content? (Y/N)");
+    }
+
+    private static Boolean inputBoolean(Scanner scanner, String prompt) {
+        System.out.println(prompt);
 
         boolean validChoice = false;
 

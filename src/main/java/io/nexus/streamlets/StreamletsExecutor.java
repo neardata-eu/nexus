@@ -55,8 +55,9 @@ public class StreamletsExecutor {
         this.functionSupplierMap = new HashMap<>();
         // TODO: Dynamically load Streamlets from Redis source code and instantiate one per partition
         this.functionSupplierMap.put("noop-1", new NoOpStreamlet("NOOP"));
-        this.functionSupplierMap.put("compression-1", new CompressionStreamlet("COMPRESSION"));
+        this.functionSupplierMap.put("compression-1", new CompressionStreamlet("COMPRESSION-1"));
         this.functionSupplierMap.put("wordcount-1", new WordCountStreamlet(new StringDeserializer()));
+        this.functionSupplierMap.put("compression-2", new CompressionStreamlet("COMPRESSION-2"));
     }
 
     // region public methods

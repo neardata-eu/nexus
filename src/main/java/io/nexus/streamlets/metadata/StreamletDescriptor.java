@@ -10,16 +10,18 @@ public class StreamletDescriptor {
     private ExecuteOn executeOn; // The type of request to operate on
     private Hardware hardware; // Streamlet type of operation
     private boolean partitionLocality; // If that streamlet should benefit from stream partition locality
+    private boolean transformsContent; // If the streamlet changes the contents of data so we always need the reverse transformation
 
     public StreamletDescriptor() {
 
     }
 
-    public StreamletDescriptor(String id, ExecuteOn executeOn, Hardware hardware, boolean partitionLocality) {
+    public StreamletDescriptor(String id, ExecuteOn executeOn, Hardware hardware, boolean partitionLocality, boolean transformsContent) {
         this.id = id;
         this.executeOn = executeOn;
         this.hardware = hardware;
         this.partitionLocality = partitionLocality;
+        this.transformsContent = transformsContent;
     }
 
     public String getId() {
@@ -54,13 +56,22 @@ public class StreamletDescriptor {
         this.partitionLocality = locality;
     }
 
+    public boolean isTransformsContent() {
+        return transformsContent;
+    }
+
+    public void setTransformsContent(boolean transformsContent) {
+        this.transformsContent = transformsContent;
+    }
+
     @Override
     public String toString() {
         return "Streamlet{" +
                 "id='" + id + '\'' +
                 ", executeOn ='" + executeOn + '\'' +
                 ", type='" + hardware + '\'' +
-                ", partitionLocality=" + (partitionLocality ? "Yes" : "No") +
+                ", partitionLocality=" + (partitionLocality ? "Yes" : "No") + '\'' +
+                ", transformsContent=" + (transformsContent ? "Yes" : "No") +
                 '}';
     }
 }

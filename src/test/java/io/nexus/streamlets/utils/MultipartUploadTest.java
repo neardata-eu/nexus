@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  */
 public class MultipartUploadTest {
 
-    public static void main(String[] args) throws IOException, NoSuchAlgorithmException {
+    public static void main(String[] args) throws IOException, NoSuchAlgorithmException, InterruptedException {
         int numberOfParts = 1;
         long totalFileSize = 5 * 1024 * 1024; // 50 MB
         long partSize = totalFileSize / numberOfParts;
@@ -75,6 +75,9 @@ public class MultipartUploadTest {
 
         // Shutdown executor
         executor.shutdown();
+
+        System.err.println("WAITING BEFORE DOWNLOAD ");
+        Thread.sleep(5000);
 
         // Step 4: Download the uploaded file
         downloadFile(s3Client, bucketName, objectKey, downloadedFile);

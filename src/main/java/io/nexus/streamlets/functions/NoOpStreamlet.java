@@ -7,6 +7,8 @@ import io.nexus.streamlets.utils.StreamletIO;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Random;
+
 import org.slf4j.Logger;
 
 /**
@@ -17,9 +19,11 @@ import org.slf4j.Logger;
 public class NoOpStreamlet extends ByteStreamlet {
 
     private final String name;
+    private final int randomNumber;
 
     public NoOpStreamlet(String name) {
         this.name = name;
+        this.randomNumber = new Random().nextInt();
     }
 
     @Override
@@ -28,7 +32,8 @@ public class NoOpStreamlet extends ByteStreamlet {
         Policy policy = context.getPolicy();
 
         // Example of adding metadata
-        context.putUserMetadata("encryption", "lz4");
+        context.putUserMetadata("hello" + randomNumber, String.valueOf(randomNumber));
+        logger.info("Storing metadata tag: Key: " + "hello" + randomNumber + ",Value: " + randomNumber);
 
         logger.info("PUT - Executing Streamlet: " + name + ", as part of pipeline: {}", policy.getPipeline());
         doProcess(event.input(), event.output(), logger);
@@ -40,8 +45,8 @@ public class NoOpStreamlet extends ByteStreamlet {
         Policy policy = context.getPolicy();
 
         // Example of getting metadata
-        String encryptionType = context.getUserMetadata("encryption");
-        logger.info("User Metadata - Encryption type: {}", encryptionType);
+        String tagValue = context.getUserMetadata("hello" + randomNumber);
+        logger.info("Getting metadata tag: Key: " + "hello" + randomNumber + ",Value: " + tagValue);
 
         logger.info("GET - Executing Streamlet: " + name + ", as part of pipeline: {}", policy.getPipeline());
         doProcess(event.input(), event.output(), logger);

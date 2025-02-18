@@ -64,8 +64,10 @@ dependencies {
     implementation 'org.apache.jclouds:jclouds-allblobstore:' + jcloudsVersion
     implementation "org.apache.jclouds.api:s3:" + jcloudsVersion
     implementation "org.apache.jclouds.api:filesystem:" + jcloudsVersion
-    
     implementation "org.apache.jclouds.driver:jclouds-slf4j:" + jcloudsVersion
+
+    // https://mvnrepository.com/artifact/org.apache.httpcomponents/httpclient
+    implementation group: 'org.apache.httpcomponents', name: 'httpclient', version: '4.5.14'
 
     testImplementation 'org.assertj:assertj-core:3.26.3' // we need to use the same version as in jclouds because we pull in their tests
 

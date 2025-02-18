@@ -82,10 +82,7 @@ public class StreamPartitionPojo {
 
         Matcher matcher = DEFAULT_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedRequestPath);
         if (matcher.matches()) {
-            StreamPartitionPojo pojo = new StreamPartitionPojo(container, container, matcher.group(1), matcher.group(2),
-                    matcher.group(3));
-            System.err.println(pojo);
-            return pojo;
+            return new StreamPartitionPojo(container, container, matcher.group(1), matcher.group(2), matcher.group(3));
         }
 
         // The object doesn't match the pattern.

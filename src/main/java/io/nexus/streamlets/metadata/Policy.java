@@ -1,7 +1,12 @@
 package io.nexus.streamlets.metadata;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.nexus.streamlets.utils.StreamNameUtils;
+
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * This class represents a Nexus policy on a data stream. It contains the following information:
@@ -22,6 +27,9 @@ import java.util.Optional;
  */
 public class Policy {
 
+    // Mock policies are created on-the-fly based on the metadata of objects that have been processed by transformer
+    // Streamlets. We create mock policies to execute the reverse transformation on objects with no current policies.
+    private final static String MOCK_POLICY = "mock";
     private String id;
     private String system;
     private String scope;
@@ -34,12 +42,29 @@ public class Policy {
     }
 
     public Policy(String id, String system, String scope, String stream, List<StreamletExecutionDescriptor> pipeline, List<String> storage) {
+        if (id.equalsIgnoreCase(MOCK_POLICY)) {
+            throw new IllegalArgumentException("Reserved policy name, please use another one.");
+        }
         this.id = id;
         this.system = system;
         this.scope = scope;
         this.stream = stream;
         this.pipeline = pipeline;
         this.storage = storage;
+    }
+
+    public static Policy createMockPolicyForLegacyTransformerStreamlets(List<String> transformerStreamlets, Region region,
+                                                                        MetadataService metadataService) {
+        Policy policy = new Policy();
+        policy.id = MOCK_POLICY;
+        policy.system = StreamNameUtils.StreamingSystems.DEFAULT.name();
+        policy.scope = MOCK_POLICY;
+        policy.stream = MOCK_POLICY;
+        policy.pipeline = transformerStreamlets.stream()
+                .map(s -> new StreamletExecutionDescriptor(metadataService.getStreamletDescriptor(s), region, Collections.emptyList()))
+                .collect(Collectors.toList());
+        policy.storage = Collections.emptyList();
+        return policy;
     }
 
     public List<StreamletExecutionDescriptor> getStreamletsForRegion(Region region) {
@@ -89,6 +114,9 @@ public class Policy {
     }
 
     public void setId(String id) {
+        if (id.equalsIgnoreCase(MOCK_POLICY)) {
+            throw new IllegalArgumentException("Reserved policy name, please use another one.");
+        }
         this.id = id;
     }
 
@@ -130,6 +158,11 @@ public class Policy {
 
     public void setStorage(List<String> storage) {
         this.storage = storage;
+    }
+
+    @JsonIgnore
+    public boolean isMock() {
+        return this.id.equals(MOCK_POLICY);
     }
 
     @Override

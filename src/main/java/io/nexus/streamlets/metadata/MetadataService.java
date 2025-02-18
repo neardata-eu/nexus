@@ -147,7 +147,7 @@ public class MetadataService {
         try {
             return this.policyCache.get(key);
         } catch (Exception e) {
-            logger.warn("Error while getting policy from metadata service");
+            logger.warn("Error while getting policy from metadata service", e);
             throw new RuntimeException(e);
         }
     }
