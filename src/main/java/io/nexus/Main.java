@@ -13,7 +13,6 @@ import io.nexus.s3proxy.AuthenticationType;
 import io.nexus.s3proxy.S3Proxy;
 import io.nexus.streamlets.StreamletsInterceptor;
 import io.nexus.streamlets.metadata.MetadataService;
-import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
@@ -27,6 +26,7 @@ public class Main {
         // Initialize main configurations
         final JCloudsConfig JCLOUDS_CONFIG = new JCloudsConfig(config);
         final S3ProxyConfig S3PROXY_CONFIG = new S3ProxyConfig(config);
+        //TODO: Check if notify-keyspace-events can be adjusted to AKE upon startup
         final RedisConfig REDIS_CONFIG = new RedisConfig(config);
         final NexusConfig NEXUS_CONFIG = new NexusConfig(config);
         logger.info("S3Proxy configuration {}", S3PROXY_CONFIG);

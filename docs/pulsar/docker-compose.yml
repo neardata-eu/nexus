@@ -1,0 +1,183 @@
+networks:
+  pulsar:
+    driver: bridge
+services:
+  zookeeper:
+    image: apachepulsar/pulsar-all:latest
+    container_name: zookeeper
+    restart: on-failure
+    user: root
+    networks:
+      - pulsar
+    volumes:
+      - ./data/zookeeper:/pulsar/data/zookeeper
+    environment:
+      - metadataStoreUrl=zk:zookeeper:2181
+      - PULSAR_MEM=-Xms256m -Xmx256m -XX:MaxDirectMemorySize=256m
+    command: >
+      bash -c "bin/apply-config-from-env.py conf/zookeeper.conf && \
+             bin/generate-zookeeper-config.sh conf/zookeeper.conf && \
+             exec bin/pulsar zookeeper"
+    healthcheck:
+      test: ["CMD", "bin/pulsar-zookeeper-ruok.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  pulsar-init:
+    container_name: pulsar-init
+    hostname: pulsar-init
+    image: apachepulsar/pulsar-all:latest
+    networks:
+      - pulsar
+    command: >
+      bash -c "bin/pulsar initialize-cluster-metadata \
+      --cluster cluster-a \
+      --zookeeper zookeeper:2181 \
+      --configuration-store zookeeper:2181 \
+      --web-service-url http://broker:8080 \
+      --broker-service-url pulsar://broker:6650"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+
+  bookie:
+    image: apachepulsar/pulsar-all:latest
+    container_name: bookie
+    restart: on-failure
+    user: root
+    networks:
+      - pulsar
+    environment:
+      - clusterName=cluster-a
+      - zkServers=zookeeper:2181
+      - metadataServiceUri=metadata-store:zk:zookeeper:2181
+      - advertisedAddress=bookie
+      - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      pulsar-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./data/bookkeeper:/pulsar/data/bookkeeper
+    command: bash -c "bin/apply-config-from-env.py conf/bookkeeper.conf && exec bin/pulsar bookie"
+
+  broker:
+    image: apachepulsar/pulsar-all:latest
+    container_name: broker
+    hostname: broker
+    restart: on-failure
+    user: root
+    networks:
+      - pulsar
+    environment:
+      - ACCESS_KEY_ID=minioadmin
+      - ACCESS_KEY_SECRET=minioadmin
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - metadataStoreUrl=zk:zookeeper:2181
+      - zookeeperServers=zookeeper:2181
+      - clusterName=cluster-a
+      - managedLedgerDefaultEnsembleSize=1
+      - managedLedgerDefaultWriteQuorum=1
+      - managedLedgerDefaultAckQuorum=1
+      - advertisedAddress=broker
+      - advertisedListeners=external:pulsar://127.0.0.1:6650
+      - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      bookie:
+        condition: service_started
+    volumes:
+      - ./conf/broker.conf:/pulsar/conf/broker.conf
+    ports:
+      - "6650:6650"
+      - "8080:8080"
+    command: bash -c "bin/apply-config-from-env.py conf/broker.conf && exec bin/pulsar broker"
+
+  minio:
+    image: quay.io/minio/minio:latest
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data:/data
+      - ./init_minio.sh:/init_minio.sh
+    command: server /data --console-address :9001
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - pulsar
+
+  nexus:
+    image: hossamelghamry/nexus-tiered-stream-manager:latest
+    ports:
+      - "8181:8181"
+      - "6060:8080"
+    environment:
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # S3Proxy Configuration
+      - S3PROXY_IDENTITY=minioadmin
+      - S3PROXY_CREDENTIAL=minioadmin
+      - S3PROXY_ENDPOINT=http://0.0.0.0:8181
+      - LOG_LEVEL=info
+      - S3PROXY_AUTHORIZATION=none
+      - S3PROXY_VIRTUALHOST=
+      - S3PROXY_KEYSTORE_PATH=keystore.jks
+      - S3PROXY_KEYSTORE_PASSWORD=password
+      - S3PROXY_CORS_ALLOW_ALL=false
+      - S3PROXY_CORS_ALLOW_ORIGINS=
+      - S3PROXY_CORS_ALLOW_METHODS=
+      - S3PROXY_CORS_ALLOW_HEADERS=
+      - S3PROXY_CORS_ALLOW_CREDENTIAL=
+      - S3PROXY_IGNORE_UNKNOWN_HEADERS=true
+      - S3PROXY_ENCRYPTED_BLOBSTORE=
+      - S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD=
+      - S3PROXY_ENCRYPTED_BLOBSTORE_SALT=
+      - S3PROXY_READ_ONLY_BLOBSTORE=false
+
+      # JClouds Configuration
+      - JCLOUDS_PROVIDER=s3
+      - JCLOUDS_IDENTITY=minioadmin
+      - JCLOUDS_CREDENTIAL=minioadmin
+      - JCLOUDS_ENDPOINT=http://minio:9000
+      - JCLOUDS_FILESYSTEM_BASEDIR=/tmp/blobstore
+      - JCLOUDS_REGION=
+      - JCLOUDS_REGIONS=us-east-1
+      - JCLOUDS_KEYSTONE_VERSION=
+      - JCLOUDS_KEYSTONE_SCOPE=
+      - JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME=
+
+       # Nexus Configuration
+      - NEXUS_REGION=CLOUD
+      - NEXUS_HARDWARE=NONE
+    depends_on:
+      - minio
+    networks:
+      - pulsar
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis-data:/data
+    networks:
+      - pulsar
+
+  redis-cli:
+    image: redis:latest
+    networks:
+      - pulsar
+
+volumes:
+  minio-data:
+  zookeeper_data:
+  bookkeeper_data:
+  

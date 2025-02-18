@@ -10,6 +10,7 @@ services:
 
   kafka:
     image: raulgracia/kafka:3.7.0-tiered-storage
+    container_name: kafka
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -73,6 +74,7 @@ services:
 
   minio:
     image: quay.io/minio/minio:latest
+    container_name: minio
     environment:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin
@@ -88,6 +90,7 @@ services:
 
   nexus:
     image: hossamelghamry/nexus-tiered-stream-manager:latest
+    container_name: nexus
     ports:
       - "8181:8181"
       - "8080:8080"

@@ -107,3 +107,9 @@ spec:
               value: ""
             - name: JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME
               value: ""
+
+            #Nexus Configuration
+            - name: NEXUS_REGION
+              value: "CLOUD"
+            - name: NEXUS_HARDWARE
+              value: "NONE"
