@@ -11,6 +11,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.function.BiConsumer;
 
+import static io.nexus.streamlets.StreamletsMetrics.GET_STREAMLET_EXECUTION_LATENCY_TIMER;
+import static io.nexus.streamlets.StreamletsMetrics.PUT_STREAMLET_EXECUTION_LATENCY_TIMER;
+
 /**
  * A Streamlet that processes events instead of raw bytes. Events are deserialized from the input stream and processed.
  * This class does not allow to write serialized events back to the output stream, as data in storage should be the same
@@ -49,11 +52,15 @@ public abstract class EventStreamlet<T> implements Streamlet {
 
     @Override
     public void handlePut(StreamletIO dataStreams, StreamletContext context) {
+        long startTime = System.nanoTime();
         handleRequest(dataStreams, context, this::processPutRecord);
+        PUT_STREAMLET_EXECUTION_LATENCY_TIMER.record(System.nanoTime() - startTime);
     }
     @Override
     public void handleGet(StreamletIO dataStreams, StreamletContext context) {
+        long startTime = System.nanoTime();
         handleRequest(dataStreams, context, this::processGetRecord);
+        GET_STREAMLET_EXECUTION_LATENCY_TIMER.record(System.nanoTime() - startTime);
     }
 
     private void handleRequest(StreamletIO dataStreams, StreamletContext context, BiConsumer<T, StreamletContext> function) {

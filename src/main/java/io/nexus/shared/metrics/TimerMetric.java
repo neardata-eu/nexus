@@ -26,4 +26,8 @@ public class TimerMetric implements Metric {
         return duration.getPrometheusName();
     }
 
+    public static double getElapsedTimeMs(long startTimeNanos, long endTimeNanos) {
+        return (endTimeNanos - startTimeNanos) / 1_000_000.0;
+    }
+
 }

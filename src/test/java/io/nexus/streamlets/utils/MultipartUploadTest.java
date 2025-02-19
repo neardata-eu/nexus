@@ -11,7 +11,15 @@ import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 
-import java.io.*;
+import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -33,7 +41,7 @@ public class MultipartUploadTest {
         long partSize = totalFileSize / numberOfParts;
 
         String bucketName = "test-metadata";
-        String objectKey = "scope3/stream/test.txt";
+        String objectKey = "scope2/stream/test.txt";
         File file = new File("/tmp/test.txt");
         File downloadedFile = new File("/tmp/test_downloaded.txt");
 

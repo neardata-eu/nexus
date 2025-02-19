@@ -3,7 +3,13 @@ package io.nexus;
 import java.net.URI;
 import java.util.Properties;
 
-import io.nexus.configuration.*;
+import io.nexus.configuration.JCloudsConfig;
+import io.nexus.configuration.NexusConfig;
+import io.nexus.configuration.PropertiesLoader;
+import io.nexus.configuration.RedisConfig;
+import io.nexus.configuration.S3ProxyConfig;
+import io.nexus.configuration.ServerConfig;
+
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.slf4j.Logger;
@@ -20,13 +26,17 @@ public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
     private static volatile boolean running = true;
     private static final PropertiesLoader config = new PropertiesLoader();
+    // Anonymously instantiating the metrics web server
+    static {
+        new ServerConfig(config);
+    }
 
     public static void main(String[] args) throws Exception {
 
         // Initialize main configurations
         final JCloudsConfig JCLOUDS_CONFIG = new JCloudsConfig(config);
         final S3ProxyConfig S3PROXY_CONFIG = new S3ProxyConfig(config);
-        //TODO: Check if notify-keyspace-events can be adjusted to AKE upon startup
+        // TODO: Check if notify-keyspace-events can be adjusted to AKE upon startup
         final RedisConfig REDIS_CONFIG = new RedisConfig(config);
         final NexusConfig NEXUS_CONFIG = new NexusConfig(config);
         logger.info("S3Proxy configuration {}", S3PROXY_CONFIG);

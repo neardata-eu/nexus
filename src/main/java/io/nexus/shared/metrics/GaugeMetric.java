@@ -28,4 +28,13 @@ public class GaugeMetric implements Metric {
         return gauge.getPrometheusName();
     }
 
+    public static double getMBps(long timeNanos, long dataBytes) {
+        if (timeNanos <= 0) {
+            throw new IllegalArgumentException("Time must be greater than zero.");
+        }
+        double timeSeconds = timeNanos / 1_000_000_000.0; // Convert nanoseconds to seconds
+        double dataMB = dataBytes / (1024.0 * 1024.0); // Convert bytes to megabytes
+        return dataMB / timeSeconds; // MBps
+    }
+
 }

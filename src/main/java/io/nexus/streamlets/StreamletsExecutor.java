@@ -1,5 +1,6 @@
 package io.nexus.streamlets;
 
+import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.RequestContext;
 import com.google.common.annotations.VisibleForTesting;
 import io.nexus.streamlets.deserializers.StringDeserializer;
@@ -81,7 +82,7 @@ public class StreamletsExecutor {
      * @throws NoPolicySetException If no streamlets are applicable based on the policy.
      * @throws RuntimeException If an error occurs while retrieving metadata or processing the request.
      */
-    public CompletableFuture<Void> processRequest(Policy policy, StreamPartitionPojo streamPartition, InputStream streamletInput,
+    public CompletableFuture<Long> processRequest(Policy policy, StreamPartitionPojo streamPartition, InputStream streamletInput,
                                                   boolean forwardStream, RequestContext context, OutputStream streamletResult) {
         // Getting all streamlets that should be executed based on the applied policy and their metadata.
         List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, forwardStream);
@@ -92,7 +93,7 @@ public class StreamletsExecutor {
 
         }
         try {
-            CompletableFuture<Void> pipelineFuture = processRequestContent(streamPartition, streamletInput,
+            CompletableFuture<Long> pipelineFuture = processRequestContent(streamPartition, streamletInput,
                     streamletsToBeExecuted, forwardStream, context, streamletResult);
             logger.info("Submitted streamlets for processing {} based on {}", streamPartition.getScopedObjectName(), policy);
             return pipelineFuture;
@@ -173,7 +174,7 @@ public class StreamletsExecutor {
      *         the storage operation have been completed.
      * @throws RuntimeException If an I/O error occurs during the processing.
      */
-    private CompletableFuture<Void> processRequestContent(StreamPartitionPojo streamPartition, InputStream streamletInput,
+    private CompletableFuture<Long> processRequestContent(StreamPartitionPojo streamPartition, InputStream streamletInput,
             List<Streamlet> streamletsToBeExecuted, boolean forwardStream, RequestContext context, OutputStream streamletResult) {
         try {
             // Create the resources for storing the input PUT request contents.
@@ -190,9 +191,9 @@ public class StreamletsExecutor {
             StreamletsMetrics.PIPELINE_BUILD_TIMER.record(System.nanoTime() - startTime);
             // In parallel, the main thread (IO thread pool) can write the storage operation to the log,
             // whereas we schedule the execution of the function pipeline in the streamlet pool.
-            CompletableFuture<Void> durableLogFuture = CompletableFuture.runAsync(() ->
+            CompletableFuture<Long> durableLogFuture = CompletableFuture.supplyAsync(() ->
                     storeAndProcessContent(streamletInput, durableLogOutput, scopedPartitionName), this.streamletExecutor);
-            return CompletableFuture.allOf(pipelineFuture, durableLogFuture);
+            return pipelineFuture.thenCompose(v -> durableLogFuture);
         } catch (IOException e) {
             logger.error("Error processing request's content");
             throw new RuntimeException(e);
@@ -207,7 +208,7 @@ public class StreamletsExecutor {
      *                               the durableLog.
      * @param streamPartition Name for the stream partition at hand.
      */
-    private void storeAndProcessContent(InputStream streamletInput, OutputStream streamletPipelineInput, String streamPartition) {
+    private long storeAndProcessContent(InputStream streamletInput, OutputStream streamletPipelineInput, String streamPartition) {
         int totalBytesRead = 0;
         int bytesRead;
         final int arraySize = 8192;
@@ -228,6 +229,7 @@ public class StreamletsExecutor {
             throw new RuntimeException(ex);
         }
         logger.info("Stored and processed {} bytes from the request input stream.", totalBytesRead);
+        return totalBytesRead;
     }
 
     /**

@@ -20,10 +20,10 @@ public class ServerConfig {
             HTTPServer server = HTTPServer.builder()
                     .port(config.getInt(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "port")).buildAndStart();
 
-            logger.info("Initialized webserver listening on port " + server.getPort() + "/metrics");
+            logger.info("Initialized metrics webserver listening on port " + server.getPort() + "/metrics");
 
         } catch (Exception e) {
-            logger.error("Unable to initialize http server", e);
+            logger.error("Unable to initialize metrics http server", e);
         }
     }
 }

@@ -3,6 +3,9 @@ package io.nexus.streamlets;
 import io.nexus.streamlets.context.StreamletContext;
 import io.nexus.streamlets.utils.StreamletIO;
 
+import static io.nexus.streamlets.StreamletsMetrics.GET_STREAMLET_EXECUTION_LATENCY_TIMER;
+import static io.nexus.streamlets.StreamletsMetrics.PUT_STREAMLET_EXECUTION_LATENCY_TIMER;
+
 /**
  * A Streamlet that processes raw byte streams. Implementing classes must define how bytes are processed.
  */
@@ -28,11 +31,15 @@ public abstract class ByteStreamlet implements Streamlet {
 
     @Override
     public final void handlePut(StreamletIO dataStreams, StreamletContext context) {
+        long startTime = System.nanoTime();
         processPutBytes(dataStreams, context);
+        PUT_STREAMLET_EXECUTION_LATENCY_TIMER.record(System.nanoTime() - startTime);
     }
 
     @Override
     public final void handleGet(StreamletIO dataStreams, StreamletContext context) {
+        long startTime = System.nanoTime();
         processGetBytes(dataStreams, context);
+        GET_STREAMLET_EXECUTION_LATENCY_TIMER.record(System.nanoTime() - startTime);
     }
 }

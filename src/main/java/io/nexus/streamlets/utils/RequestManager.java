@@ -2,9 +2,9 @@ package io.nexus.streamlets.utils;
 
 import com.google.common.net.HttpHeaders;
 import io.nexus.streamlets.ForwardedRequestException;
+import io.nexus.streamlets.StreamletsMetrics;
 import io.nexus.streamlets.context.RequestContext;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
-import jakarta.ws.rs.core.Response;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -75,6 +75,7 @@ public class RequestManager implements Closeable {
 
     public CompletableFuture<Void> doAsyncGetRequest(String containerName, String blobName, GetOptions getOptions,
                                                       OutputStream streamletInputOutputStream, RequestContext context) {
+        long startTime = System.nanoTime();
         Blob proxyBlob = (getOptions == null) ? this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName) :
                 this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName, getOptions);
         // FIll the context with metadata synchronously to make it available right away to streamlets.
@@ -83,12 +84,20 @@ public class RequestManager implements Closeable {
         return CompletableFuture.runAsync(() -> {
             try (InputStream is = proxyBlob.getPayload().openStream()){
                 int readBytes;
-
+                long totalBytesTransferred = 0;
                 byte[] content = new byte[16 * 1024];
                 while ((readBytes = is.read(content)) != -1) {
                     streamletInputOutputStream.write(content, 0, readBytes);
+                    totalBytesTransferred += readBytes;
                 }
                 streamletInputOutputStream.close();
+                // Record metrics.
+                double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+                StreamletsMetrics.GET_REQUEST_STORAGE_OPERATIONS_COUNTER.incrementCounter();
+                double transferSizeMB = (totalBytesTransferred / (1024.0 * 1024.0));
+                StreamletsMetrics.GET_REQUEST_STORAGE_SIZE_GAUGE.record(transferSizeMB);
+                double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+                StreamletsMetrics.GET_REQUEST_STORAGE_THROUGHPUT_GAUGE.record(transferSpeedMBps);
                 logger.info("Completed GET request for {} / {}.", containerName, blobName);
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -105,6 +114,7 @@ public class RequestManager implements Closeable {
      * @return A CompletableFuture that completes when the metadata update is done.
      */
     public CompletableFuture<Void> updateMetadataAsync(String containerName, String blobName, RequestContext context) {
+        long startTime = System.nanoTime();
         Map<String, String> userMetadata = context.getUserMetadataCopy();
         if (userMetadata.isEmpty()) {
             return CompletableFuture.completedFuture(null);
@@ -119,7 +129,10 @@ public class RequestManager implements Closeable {
             CopyOptions copyOptions = CopyOptions.builder().userMetadata(mergedTags).build();
             logger.info("Saving user metadata as object tags ({}), total tags ({}).", userMetadata.size(), mergedTags.size());
             this.blobStore.copyBlob(containerName, blobName, containerName, blobName, copyOptions);
-
+            // Record metrics.
+            long operationTime = System.nanoTime() - startTime;
+            StreamletsMetrics.METADATA_TAGS_UPDATE_OPERATIONS_COUNTER.incrementCounter();
+            StreamletsMetrics.METADATA_TAGS_UPDATE_LATENCY_TIMER.record(operationTime);
         }, this.dataTransferExecutor);
     }
 
@@ -133,6 +146,7 @@ public class RequestManager implements Closeable {
      */
     public CompletableFuture<Void> forwardGetRequest(String targetServerUrl, String container, String blobName,
                                                      OutputStream getContents, RequestContext context) {
+        long startTime = System.nanoTime();
         try {
             // Construct the target URL
             String targetUrl = buildCuratedTargetUrl(targetServerUrl, container, blobName);
@@ -146,6 +160,13 @@ public class RequestManager implements Closeable {
                 try (InputStream inputStream = entity.getContent()) {
                     long transferredBytes = inputStream.transferTo(getContents);
                     getContents.close(); // Close the stream used as GET contents input.
+                    // Record metrics.
+                    double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+                    StreamletsMetrics.GET_REQUEST_FORWARD_OPERATIONS_COUNTER.incrementCounter();
+                    double transferSizeMB = (transferredBytes / (1024.0 * 1024.0));
+                    StreamletsMetrics.GET_REQUEST_FORWARD_SIZE_GAUGE.record(transferSizeMB);
+                    double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+                    StreamletsMetrics.GET_REQUEST_FORWARD_THROUGHPUT_GAUGE.record(transferSpeedMBps);
                     logger.info("Completed forward GET to {}, available bytes {}", targetUrl, transferredBytes);
                 } catch (IOException e) {
                     throw new RuntimeException("I/O error while processing GET response for " + targetUrl, e);
@@ -188,6 +209,7 @@ public class RequestManager implements Closeable {
      */
     public CompletableFuture<Void> forwardPutRequest(String targetServerUrl, String container, Blob blob,
                                                       InputStream processedContent) {
+        long startTime = System.nanoTime();
         return CompletableFuture.runAsync(() -> {
             try {
                 // Construct the target URL
@@ -212,13 +234,18 @@ public class RequestManager implements Closeable {
                     byte[] buffer = new byte[8192];
                     int bytesRead;
                     long totalBytesForwarded = 0;
-                    long startTime = System.currentTimeMillis();
                     while ((bytesRead = processedContent.read(buffer)) != -1) {
                         outputStream.write(buffer, 0, bytesRead);
                         totalBytesForwarded += bytesRead;
                     }
-                    logger.info("Completed PUT forward with {} MBps of {}", (totalBytesForwarded / (1024.0 * 1024.0)) /
-                            ((System.currentTimeMillis() - startTime) / 1000.0), targetUrl);
+                    // Record metrics.
+                    double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+                    StreamletsMetrics.PUT_REQUEST_FORWARD_OPERATIONS_COUNTER.incrementCounter();
+                    double transferSizeMB = (totalBytesForwarded / (1024.0 * 1024.0));
+                    StreamletsMetrics.PUT_REQUEST_FORWARD_SIZE_GAUGE.record(transferSizeMB);
+                    double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+                    StreamletsMetrics.PUT_REQUEST_FORWARD_THROUGHPUT_GAUGE.record(transferSpeedMBps);
+                    logger.info("Completed PUT forward with {} MBps of {}", transferSpeedMBps, targetUrl);
                 }
                 // Handle the response
                 int responseCode = connection.getResponseCode();

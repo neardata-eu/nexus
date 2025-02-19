@@ -1,5 +1,6 @@
 package io.nexus.streamlets;
 
+import io.nexus.shared.metrics.GaugeMetric;
 import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
@@ -38,7 +39,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.*;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -189,11 +195,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
 
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
+        long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(blob.getMetadata().getName()) == null) {
             logger.info("Skipping PUT interception for non-log/ledger blob: {}", blob.getMetadata().getName());
             return super.putBlob(containerName, blob, putOptions);
         }
-
         logger.info("PUT request for {} / {}.", containerName, blob.getMetadata().getName());
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
@@ -221,7 +227,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             InputStream streamletInput = blob.getPayload().openStream();
             FastPipedOutputStream streamletOutput = new FastPipedOutputStream();
             InputStream streamletOutputInputStream = new FastPipedInputStream(streamletOutput);
-            CompletableFuture<Void> pipelineFuture = tryProcess(policy, currentRegion, availableHardware,
+            CompletableFuture<Long> pipelineFuture = tryProcess(policy, currentRegion, availableHardware,
                     streamPartition, streamletInput, true, streamletOutput, streamletContext);
             // 3. We may have executed some Streamlets or not. At this point, we need to infer the next Swarmlet for the
             // request. We may need to forward it to another Swarmlet within the same Region (Intra-Swarmlet Routing) due to
@@ -230,24 +236,37 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             // thrown. If nextSwarmletEndpoint is null, it means that there is no further routing needed, so we can store
             // the data in the final destination (e.g., S3 bucket).
             String nextSwarmletEndpoint = nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+            // We consider that the interception time up to this point, next phase is mainly transfer and processing.
+            StreamletsMetrics.PUT_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
             if (nextSwarmletEndpoint != null) {
                 // 4.1 Route the PUT request to the next Nexus Swarmlet and update the metadata in storage.
                 this.requestManager.forwardPutRequest(nextSwarmletEndpoint, containerName, blob, streamletOutputInputStream)
-                        .thenCompose(v -> this.requestManager.updateMetadataAsync(containerName, blob.getMetadata().getName(), streamletContext)).join();
+                        .thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
+                                blob.getMetadata().getName(), streamletContext)).join();
                 throw new ForwardedRequestException("Request forwarded to " + nextSwarmletEndpoint);
             } else {
                 // 4.2 Store the PUT contents in S3 and reply to the client.
+                startTime = System.nanoTime();
+                long contentLength = blob.getPayload().getContentMetadata().getContentLength();
                 Blob newBlob = this.blobBuilder(blob.getMetadata().getName())
                         .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
                         // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
                         //  that change the length of the request when processed in streaming fashion.
-                        .contentLength(blob.getPayload().getContentMetadata().getContentLength())
+                        .contentLength(contentLength)
                         .contentType(blob.getPayload().getContentMetadata().getContentType())
                         .build();
                 String eTag = (putOptions == null) ? super.putBlob(containerName, newBlob) :
                         super.putBlob(containerName, newBlob, putOptions);
+                // Record metrics.
+                double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+                StreamletsMetrics.PUT_REQUEST_STORAGE_OPERATIONS_COUNTER.incrementCounter();
+                double transferSizeMB = (contentLength / (1024.0 * 1024.0));
+                StreamletsMetrics.PUT_REQUEST_STORAGE_SIZE_GAUGE.record(transferSizeMB);
+                double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+                StreamletsMetrics.PUT_REQUEST_STORAGE_THROUGHPUT_GAUGE.record(transferSpeedMBps);
                 // If there is user metadata, store it as tags in the object after the object is already stored.
-                pipelineFuture.thenCompose(v -> this.requestManager.updateMetadataAsync(containerName, blob.getMetadata().getName(), streamletContext)).join();
+                pipelineFuture.thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
+                        blob.getMetadata().getName(), streamletContext)).join();
                 return eTag;
             }
         } catch (ForwardedRequestException e) {
@@ -266,6 +285,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
 
     @Override
     public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
+        long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(blobName) == null) {
             logger.info("Skipping GET interception for non-log/ledger blob: {}", blobName);
             return super.getBlob(containerName, blobName, getOptions);
@@ -289,7 +309,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                     headersBlob.getAllHeaders(), currentRegion);
             if (!transformerStreamlets.isEmpty()) {
                 logger.info("No policy set for {} / {}, but the object was processed by transformer Streamlets [{}].",
-                        containerName, blobName, transformerStreamlets.stream().collect(Collectors.joining(",")));
+                        containerName, blobName, String.join(",", transformerStreamlets));
                 policy = Policy.createMockPolicyForLegacyTransformerStreamlets(transformerStreamlets, currentRegion, this.metadataService);
             } else {
                 // Plain object with no Streamlet transformations, so just execute operation against S3 endpoint.
@@ -301,13 +321,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             throw new RuntimeException(ex);
         }
         StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(blobName, policy.getSystem(), containerName);
-
         try {
             // 2. For GETs, we need to check if we are the final Region, because the processing goes backwards. In other
             // words, we get what is the next Swarmlet in the pipeline. For mock policies we do not apply routing.
             String nextSwarmletEndpoint = policy.isMock() ? null :
                     nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
-
             // 3. If we are the right Swarmlet in the final Region, we can proceed with the GET to the actual storage. If
             // not, we need to forward the request to the next Swarmlet before doing or own processing.
             InputStream streamletInput;
@@ -316,6 +334,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             FastPipedOutputStream streamletInputOutputStream = new FastPipedOutputStream();
             streamletInput = new FastPipedInputStream(streamletInputOutputStream);
             RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy);
+            // We consider that the interception time up to this point, next phase is mainly transfer and processing.
+            StreamletsMetrics.GET_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
             CompletableFuture<Void> getFuture = (nextSwarmletEndpoint != null) ?
                 this.requestManager.forwardGetRequest(nextSwarmletEndpoint, containerName, blobName, streamletInputOutputStream, streamletContext) :
                 this.requestManager.doAsyncGetRequest(containerName, blobName, getOptions, streamletInputOutputStream, streamletContext);
@@ -373,6 +393,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
 
     @Override
     public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
+        long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(blobMetadata.getName()) == null){
             logger.info("Skipping multipart upload interception for non-log/ledger blob: {}", blobMetadata.getName());
             return super.initiateMultipartUpload(container, blobMetadata, options);
@@ -385,11 +406,14 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         MultiPartUploadState uploadState = new MultiPartUploadState(container, blobMetadata, options, uploadId);
         this.multipartUploads.put(uploadId, uploadState);
         // Return a valid MultipartUpload object.
-        return MultipartUpload.create(container, blobMetadata.getName(), uploadId, blobMetadata, options);
+        MultipartUpload multipartUpload = MultipartUpload.create(container, blobMetadata.getName(), uploadId, blobMetadata, options);
+        StreamletsMetrics.INITIATE_MULTIPART_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
+        return multipartUpload;
     }
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
+        long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null){
             logger.info("Continuing multipart interception skips...");
             return super.uploadMultipartPart(mpu, partNumber,payload);
@@ -404,11 +428,20 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         long transferredBytes = uploadState.uploadPart(partNumber, payload);
         logger.info("Completed part in multipart upload {} with {} bytes.", mpu.id(), transferredBytes);
         // Return the result to the client for this part.
-        return MultipartPart.create(partNumber, transferredBytes, UUID.randomUUID().toString(), new Date());
+        MultipartPart multipartPart = MultipartPart.create(partNumber, transferredBytes, UUID.randomUUID().toString(), new Date());
+        // Record metrics.
+        double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_OPERATIONS_COUNTER.incrementCounter();
+        double transferSizeMB = (transferredBytes / (1024.0 * 1024.0));
+        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_SIZE_GAUGE.record(transferSizeMB);
+        double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_THROUGHPUT_GAUGE.record(transferSpeedMBps);
+        return multipartPart;
     }
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
+        long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null){
             logger.info("Aborting multipart interception for non-log/ledger blob: {}", mpu.blobName());
             super.abortMultipartUpload(mpu);
@@ -423,10 +456,12 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         uploadState.abortUpload();
         this.multipartUploads.remove(mpu.id());
         logger.info("Multipart upload aborted {} ({})", mpu.blobName(), mpu.id());
+        StreamletsMetrics.ABORT_MULTIPART_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
     }
 
     @Override
     public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+        long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(mpu.blobName()) == null) {
             logger.info("Completely skipped multipart upload interception for non-log/ledger blob: {}", mpu.blobName());
             return super.completeMultipartUpload(mpu, parts);
@@ -439,11 +474,18 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         // Create the PUT request from the completed multipart upload.
         this.requestManager.initiatePutRequestFromMultipartUpload(uploadState);
         // Transfer the data from all the parts to the output stream related to the PUT request.
-        uploadState.transferMultiPartContentsToPutRequest();
+        long transferredBytes = uploadState.transferMultiPartContentsToPutRequest();
         // Wait until the PUT request completes to make sure we can reply to the client.
         uploadState.completeUpload();
         this.multipartUploads.remove(mpu.id());
         logger.info("Multipart upload complete {} ({}).", mpu.blobName(), mpu.id());
+        // Record metrics.
+        double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+        StreamletsMetrics.MULTIPART_UPLOAD_COMPLETE_OPERATIONS_COUNTER.incrementCounter();
+        double transferSizeMB = (transferredBytes / (1024.0 * 1024.0));
+        StreamletsMetrics.MULTIPART_UPLOAD_COMPLETE_SIZE_GAUGE.record(transferSizeMB);
+        double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+        StreamletsMetrics.MULTIPART_UPLOAD_COMPLETE_THROUGHPUT_GAUGE.record(transferSpeedMBps);
         return uploadState.getUploadId();
     }
 
@@ -519,7 +561,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
 
     // being private methods region
 
-    private CompletableFuture<Void> tryProcess(Policy policy, Region currentRegion, Hardware availableHardware,
+    private CompletableFuture<Long> tryProcess(Policy policy, Region currentRegion, Hardware availableHardware,
                                                StreamPartitionPojo streamPartition, InputStream streamletInput, boolean isPut,
                                                OutputStream streamletResult, RequestContext streamletContext) {
         if (policy.canSwarmletExecuteStreamlets(currentRegion, availableHardware)) {
@@ -529,14 +571,20 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         return CompletableFuture.completedFuture(null);
     }
 
-    private CompletableFuture<Void> doProcess(Policy policy, StreamPartitionPojo streamPartition, InputStream streamletInput,
+    private CompletableFuture<Long> doProcess(Policy policy, StreamPartitionPojo streamPartition, InputStream streamletInput,
                                               boolean isPut, OutputStream streamletResult, RequestContext streamletContext) {
         try {
             long startTime = System.nanoTime();
             return this.streamletsExecutor.processRequest(policy, streamPartition, streamletInput, isPut, streamletContext, streamletResult)
-                    .thenRun(() -> { // Record processing time metrics after once processing completes.
-                        TimerMetric timer = isPut ? StreamletsMetrics.PUT_REQUEST_TIMER : StreamletsMetrics.GET_REQUEST_TIMER;
+                    .thenApply(processedBytes -> {
+                        // Record processing time metrics after once processing completes.
+                        TimerMetric timer = isPut ? StreamletsMetrics.PUT_STREAMLET_PIPELINE_EXECUTION_LATENCY_TIMER :
+                                StreamletsMetrics.GET_STREAMLET_PIPELINE_EXECUTION_LATENCY_TIMER;
                         timer.record(System.nanoTime() - startTime);
+                        GaugeMetric gauge = isPut ? StreamletsMetrics.PUT_STREAMLET_PIPELINE_EXECUTION_THROUGHPUT_GAUGE :
+                                StreamletsMetrics.GET_STREAMLET_PIPELINE_EXECUTION_THROUGHPUT_GAUGE;
+                        gauge.record(GaugeMetric.getMBps(System.nanoTime() - startTime, processedBytes));
+                        return processedBytes;
                     });
         } catch (Exception e) {
             logger.error("Error while intercepting the Request", e);

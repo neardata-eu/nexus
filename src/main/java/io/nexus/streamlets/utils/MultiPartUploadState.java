@@ -84,12 +84,14 @@ public class MultiPartUploadState {
     /**
      * Transfers the content of all the parts to the internal output stream.
      */
-    public void transferMultiPartContentsToPutRequest() {
+    public long transferMultiPartContentsToPutRequest() {
+        long transferredBytes = 0;
         try {
             for (MultipartPartState mps : this.uploadParts.values()) {
                 byte[] bytes = new byte[mps.partContent.readableBytes()];
                 mps.partContent.readBytes(bytes);
                 this.outputStream.write(bytes);
+                transferredBytes += bytes.length;
             }
             this.outputStream.close();
         } catch (IOException ex) {
@@ -98,6 +100,7 @@ public class MultiPartUploadState {
             // Release the buffers to prevent memory leaks.
             this.uploadParts.values().forEach(mps -> mps.partContent.release());
         }
+        return transferredBytes;
     }
 
     /**
