@@ -18,11 +18,10 @@ import org.slf4j.Logger;
  */
 public class NoOpStreamlet extends ByteStreamlet {
 
-    private final String name;
+    private final String name = "NOOP";
     private final int randomNumber;
 
-    public NoOpStreamlet(String name) {
-        this.name = name;
+    public NoOpStreamlet() {
         this.randomNumber = new Random().nextInt();
     }
 

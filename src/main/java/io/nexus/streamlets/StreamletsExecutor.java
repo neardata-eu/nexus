@@ -1,5 +1,6 @@
 package io.nexus.streamlets;
 
+import io.nexus.streamlets.compiler.StreamletLoader;
 import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.RequestContext;
 import com.google.common.annotations.VisibleForTesting;
@@ -46,27 +47,17 @@ public class StreamletsExecutor {
     private final ScheduledExecutorService streamletExecutor;
     private final DurableLog durableLog;
     private final MetadataService metadataService;
-    private final Map<String, Streamlet> functionSupplierMap;
+    private final StreamletLoader streamletLoader;
 
     public StreamletsExecutor(MetadataService metadataService) {
         // Create a separate thread pool for executing streamlets
         this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(10, "streamlet-threadpool");
         this.durableLog = new FileSystemDurableLog();
         this.metadataService = metadataService;
-        this.functionSupplierMap = new HashMap<>();
-        // TODO: Dynamically load Streamlets from Redis source code and instantiate one per partition
-        this.functionSupplierMap.put("noop-1", new NoOpStreamlet("NOOP"));
-        this.functionSupplierMap.put("compression-1", new CompressionStreamlet("COMPRESSION-1"));
-        this.functionSupplierMap.put("wordcount-1", new WordCountStreamlet(new StringDeserializer()));
-        this.functionSupplierMap.put("compression-2", new CompressionStreamlet("COMPRESSION-2"));
+        this.streamletLoader = new StreamletLoader(metadataService);
     }
 
     // region public methods
-
-    @VisibleForTesting
-    public Map<String, Streamlet> getFunctionSupplierMap() {
-        return functionSupplierMap;
-    }
 
     /**
      * Processes a request by executing the streamlets associated with the given policy. If no streamlets are applicable,
@@ -129,7 +120,7 @@ public class StreamletsExecutor {
             // Check if the streamlet is to be executed as per the request type and return the list of executable functions.
             return policyPipeline.stream()
                     .filter(s -> shouldExecuteStreamletOnRequest(s.getStreamlet(), forwardStream))
-                    .map(s -> this.functionSupplierMap.get(s.getStreamlet().getId()))
+                    .map(s -> this.streamletLoader.createStreamlet(s.getStreamlet().getId()))
                     .toList();
         } catch (Exception e) {
             logger.debug("Error finding streamlet from policy pipeline");

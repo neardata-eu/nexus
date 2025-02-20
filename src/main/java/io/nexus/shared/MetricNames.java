@@ -139,4 +139,9 @@ public class MetricNames {
                 PREFIX + "streamlet.function.get_execution_latency",
                 "Duration of executing a GET streamlet");
 
+        // Streamlet compilation
+        public static final MetricInfo STREAMLET_INSTANTIATION_DURATION = new MetricInfo(
+                PREFIX + "streamlet.function.instantiation_duration",
+                "Duration of compiling and instantiating a Streamlet");
+
 }

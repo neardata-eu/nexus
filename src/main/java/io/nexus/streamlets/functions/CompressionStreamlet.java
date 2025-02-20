@@ -12,11 +12,7 @@ import java.util.zip.GZIPOutputStream;
 
 public class CompressionStreamlet extends ByteStreamlet {
 
-    private final String name;
-
-    public CompressionStreamlet(String name) {
-        this.name = name;
-    }
+    private final String name = "COMPRESSION";
 
     @Override
     protected void processPutBytes(StreamletIO dataStreams, StreamletContext context) {

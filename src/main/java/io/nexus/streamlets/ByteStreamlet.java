@@ -8,6 +8,8 @@ import static io.nexus.streamlets.StreamletsMetrics.PUT_STREAMLET_EXECUTION_LATE
 
 /**
  * A Streamlet that processes raw byte streams. Implementing classes must define how bytes are processed.
+ * Important: due to the dynamic loading capabilities of Streamlets, Nexus assumes that Streamlets extending this
+ * class are instantiated via a constructor with no arguments.
  */
 public abstract class ByteStreamlet implements Streamlet {
 

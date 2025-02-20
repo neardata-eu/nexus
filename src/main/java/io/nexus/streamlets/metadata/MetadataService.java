@@ -18,6 +18,7 @@ public class MetadataService {
 
     public static final String METADATA_POLICY_PREFIX = "policy:";
     public static final String METADATA_STREAMLET_PREFIX = "streamletdescriptor:";
+    public static final String METADATA_STREAMLET_CODE_PREFIX = "streamletcode:";
     public static final String METADATA_SWARMLET_PREFIX = "swarmletdescriptor:";
 
     private final NexusConfig nexusConfig;
@@ -26,6 +27,7 @@ public class MetadataService {
     final Map<String, Policy> policyCache = new ConcurrentHashMap<>();
     final Map<String, StreamletDescriptor> streamletCache = new ConcurrentHashMap<>();
     final Map<String, SwarmletDescriptor> swarmletCache = new ConcurrentHashMap<>();
+    final Map<String, String> codeCache = new ConcurrentHashMap<>();
 
     /**
      * Constructs a MetadataService instance.
@@ -49,6 +51,7 @@ public class MetadataService {
             loadPolicies(jedis);
             loadStreamletDescriptors(jedis);
             loadSwarmletDescriptors(jedis);
+            loadStreamletCode(jedis);
         } catch (Exception e) {
             logger.error("Error while loading initial data from Redis", e);
         }
@@ -93,6 +96,18 @@ public class MetadataService {
         }
     }
 
+    private void loadStreamletCode(Jedis jedis) {
+        Set<String> keys = jedis.keys(METADATA_STREAMLET_CODE_PREFIX + "*");
+        for (String key : keys) {
+            try {
+                String json = jedis.get(key);
+                codeCache.put(key, json);
+            } catch (Exception e) {
+                logger.error("Error while loading sttreamlet code with key: " + key, e);
+            }
+        }
+    }
+
     /**
      * Initializes the Redis subscriber to listen for updates and update local caches.
      */
@@ -118,6 +133,8 @@ public class MetadataService {
                                         streamletCache.put(key, objectMapper.readValue(json, StreamletDescriptor.class));
                                     } else if (key.startsWith(METADATA_SWARMLET_PREFIX)) {
                                         swarmletCache.put(key, objectMapper.readValue(json, SwarmletDescriptor.class));
+                                    } else if (key.startsWith(METADATA_STREAMLET_CODE_PREFIX)) {
+                                        codeCache.put(key, json);
                                     }
                                 } catch (Exception e) {
                                     logger.error("Error updating cache for key: " + key, e);
@@ -219,6 +236,16 @@ public class MetadataService {
         try {
             String key = METADATA_SWARMLET_PREFIX + id;
             return this.swarmletCache.get(key);
+        } catch (Exception e) {
+            logger.warn("Error while getting swarmlet information from metadata service");
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getStreamletCode(String id) {
+        try {
+            String key = METADATA_STREAMLET_CODE_PREFIX + id;
+            return this.codeCache.get(key);
         } catch (Exception e) {
             logger.warn("Error while getting swarmlet information from metadata service");
             throw new RuntimeException(e);

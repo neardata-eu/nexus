@@ -14,12 +14,14 @@ public class EntryPoint {
     private static PolicyMetadataManager policyCLI;
     private static StreamletDescriptorManager streamletDescriptorCLI;
     private static SwarmletMetadataManager swarmletDescriptorCLI;
+    private static StreamletCodeManager streamletCodeManagerCLI;
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
         policyCLI = new PolicyMetadataManager(scanner, redis, objectMapper);
         streamletDescriptorCLI = new StreamletDescriptorManager(scanner, redis, objectMapper);
         swarmletDescriptorCLI = new SwarmletMetadataManager(scanner, redis, objectMapper);
+        streamletCodeManagerCLI = new StreamletCodeManager(scanner, redis);
 
         while (running) {
             initialPrompt(scanner);
@@ -33,7 +35,8 @@ public class EntryPoint {
         System.out.println("1. Policy Metadata Management");
         System.out.println("2. Streamlet Metadata Management");
         System.out.println("3. Swarmlet Metadata Management");
-        System.out.println("4. Exit");
+        System.out.println("4. Streamlet Code Management");
+        System.out.println("5. Exit");
 
         boolean validChoice = false;
         int answer;
@@ -54,6 +57,9 @@ public class EntryPoint {
                     swarmletDescriptorCLI.mainPrompt();
                     break;
                 case 4:
+                    streamletCodeManagerCLI.mainPrompt();
+                    break;
+                case 5:
                     running = false;
                     break;
                 default:

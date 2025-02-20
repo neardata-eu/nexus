@@ -61,7 +61,7 @@ public class StreamletDescriptorManager {
         System.out.println("Creating a new Streamlet.");
 
         StreamletDescriptor streamletDescriptor = new StreamletDescriptor();
-        System.out.print("Enter Streamlet ID: ");
+        System.out.print("Enter Streamlet ID (i.e., fully qualified class name): ");
         streamletDescriptor.setId(scanner.nextLine());
 
         streamletDescriptor.setExecuteOn(inputExecuteOn(scanner));
@@ -85,7 +85,7 @@ public class StreamletDescriptorManager {
     }
 
     private void readStreamlet() {
-        System.out.print("Enter Streamlet ID to read: ");
+        System.out.print("Enter Streamlet ID to read (i.e., fully qualified class name): ");
         String id = MetadataService.METADATA_STREAMLET_PREFIX + scanner.nextLine();
 
         String streamletJson = redis.get(id);
@@ -141,7 +141,7 @@ public class StreamletDescriptorManager {
     }
 
     private void deleteStreamlet() {
-        System.out.print("Enter Streamlet ID to delete: ");
+        System.out.print("Enter Streamlet ID to delete (i.e., fully qualified class name): ");
         String streamletId = scanner.nextLine();
         streamletId = MetadataService.METADATA_STREAMLET_PREFIX + streamletId;
 

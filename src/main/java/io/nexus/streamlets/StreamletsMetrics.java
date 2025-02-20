@@ -82,4 +82,8 @@ public class StreamletsMetrics {
                 MetricNames.PUT_STREAMLET_EXECUTION_LATENCY);
         public static final TimerMetric GET_STREAMLET_EXECUTION_LATENCY_TIMER = new TimerMetric(
                 MetricNames.GET_STREAMLET_EXECUTION_LATENCY);
+
+        // Streamlet compilation and instantiation
+        public static final TimerMetric STREAMLET_INSTANTIATION_DURATION_TIMER = new TimerMetric(
+                MetricNames.STREAMLET_INSTANTIATION_DURATION);
 }

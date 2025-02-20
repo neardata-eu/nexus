@@ -19,6 +19,8 @@ import static io.nexus.streamlets.StreamletsMetrics.PUT_STREAMLET_EXECUTION_LATE
  * This class does not allow to write serialized events back to the output stream, as data in storage should be the same
  * as it was written by the streaming system (i.e., only lossless transformations are allowed). Otherwise, it may cause
  * data corruption.
+ * Important: due to the dynamic loading capabilities of Streamlets, Nexus assumes that Streamlets extending this
+ * class are instantiated via a constructor with one {@link Deserializer} argument.
  *
  * @param <T> The type of record being processed.
  */

@@ -1,8 +1,8 @@
 package io.nexus.streamlets.functions;
 
-import io.nexus.streamlets.Deserializer;
 import io.nexus.streamlets.EventStreamlet;
 import io.nexus.streamlets.context.StreamletContext;
+import io.nexus.streamlets.deserializers.StringDeserializer;
 
 import java.util.regex.Pattern;
 import java.util.concurrent.atomic.AtomicLong;
@@ -14,7 +14,7 @@ public class WordCountStreamlet extends EventStreamlet<String> {
     private final AtomicLong wordCount = new AtomicLong(0);
     private static final Pattern WORD_PATTERN = Pattern.compile("\\s+");
 
-    public WordCountStreamlet(Deserializer<String> deserializer) {
+    public WordCountStreamlet(StringDeserializer deserializer) {
         super(deserializer);
     }
 
