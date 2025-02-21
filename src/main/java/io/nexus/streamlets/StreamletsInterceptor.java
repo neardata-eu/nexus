@@ -4,9 +4,20 @@ import io.nexus.shared.metrics.GaugeMetric;
 import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
-import io.nexus.streamlets.metadata.*;
 
-import io.nexus.streamlets.utils.*;
+import io.nexus.streamlets.metadata.Hardware;
+import io.nexus.streamlets.metadata.MetadataService;
+import io.nexus.streamlets.metadata.Policy;
+import io.nexus.streamlets.metadata.Region;
+import io.nexus.streamlets.metadata.S3StorageConfig;
+import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
+import io.nexus.streamlets.utils.CachedS3Client;
+import io.nexus.streamlets.utils.FastPipedInputStream;
+import io.nexus.streamlets.utils.FastPipedOutputStream;
+import io.nexus.streamlets.utils.MultiPartUploadState;
+import io.nexus.streamlets.utils.ObjectTagsUtils;
+import io.nexus.streamlets.utils.RequestManager;
+import io.nexus.streamlets.utils.StreamNameUtils;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -44,6 +55,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -283,6 +295,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             throw e;
         } catch (Exception ex) {
             // Unknown problem, rethrow.
+            logger.error("Unexpected exception in PUT interception.", ex);
             throw new RuntimeException(ex);
         }
     }
@@ -350,13 +363,13 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                 this.requestManager.forwardGetRequest(nextSwarmletEndpoint, containerName, blobName, streamletInputOutputStream, streamletContext) :
                 this.requestManager.doAsyncGetRequest(containerName, blobName, getOptions, streamletInputOutputStream, streamletContext);
             // 4. Try to execute the reverse Streamlets in our Region, if we are the right Swarmlet instance.
-            CompletableFuture<Void> transfersFuture = CompletableFuture.allOf(getFuture, tryProcess(policy, currentRegion,
-                    availableHardware, streamPartition, streamletInput, false, streamletOutput, streamletContext))
-                    .thenRun(() -> closeStreams(streamletInput, streamletOutputInputStream, streamletOutput));
             Blob resultBlob = super.blobBuilder(blobName)
                     .payload(streamletOutputInputStream)
                     .userMetadata(streamletContext.getUserMetadataCopy())
                     .build();
+            CompletableFuture<Void> transfersFuture = CompletableFuture.allOf(getFuture, tryProcess(policy, currentRegion,
+                    availableHardware, streamPartition, streamletInput, false, streamletOutput, streamletContext))
+                    .handle(handleStreamletExceptions(resultBlob, streamletOutputInputStream, streamletInput, streamletOutput));
             // This metadata is needed by S3 proxy handler.
             resultBlob.getMetadata().setLastModified(new Date());
             return resultBlob;
@@ -713,6 +726,25 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         }
         StreamletsMetrics.POLICY_RETRIEVAL_TIMER.record(System.nanoTime() - startTime);
         return policy;
+    }
+
+    private BiFunction<Void, Throwable, Void> handleStreamletExceptions(Blob resultBlob,
+                                                                        InputStream streamletOutputInputStream,
+                                                                        InputStream streamletInput,
+                                                                        FastPipedOutputStream streamletOutput) {
+        return (v, ex) -> {
+            if (ex != null) {
+                try {
+                    streamletOutputInputStream.close();
+                    logger.error("Exception thrown during pipeline execution, closing stream.", ex);
+                } catch (IOException e) {
+                    logger.error("Exception while closing stream after pipeline execution error.", e);
+                    throw new RuntimeException(e);
+                }
+            }
+            closeStreams(streamletInput, streamletOutputInputStream, streamletOutput);
+            return null;
+        };
     }
 
     private static void closeStreams(AutoCloseable... streams) {

@@ -15,6 +15,7 @@ import java.nio.file.Paths;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.jar.JarFile;
 
 public class StreamletLoader {
     final Logger logger = LoggerFactory.getLogger(StreamletLoader.class);
@@ -92,13 +93,33 @@ public class StreamletLoader {
 
             while (resources.hasMoreElements()) {
                 URL resource = resources.nextElement();
-                Path directory = Paths.get(resource.toURI());
-
-                if (Files.isDirectory(directory)) {
-                    Files.walk(directory)
-                            .filter(Files::isRegularFile)
-                            .filter(file -> file.toString().endsWith(".class"))
-                            .forEach(file -> loadClassFromFile(file, packageName, directory));
+                if (resource.getProtocol().equals("file")) {
+                    // Running in an IDE, load from file system
+                    Path directory = Paths.get(resource.toURI());
+                    if (Files.isDirectory(directory)) {
+                        Files.walk(directory)
+                                .filter(Files::isRegularFile)
+                                .filter(file -> file.toString().endsWith(".class"))
+                                .forEach(file -> loadClassFromFile(file, packageName, directory));
+                    }
+                } else if (resource.getProtocol().equals("jar")) {
+                    // Running from a JAR, extract class names differently
+                    String jarPath = resource.getPath().substring(5, resource.getPath().indexOf("!"));
+                    try (JarFile jarFile = new JarFile(jarPath)) {
+                        jarFile.stream()
+                                .filter(entry -> entry.getName().endsWith(".class") && entry.getName().startsWith(path))
+                                .forEach(entry -> {
+                                    String className = entry.getName()
+                                            .replace('/', '.')
+                                            .replace(".class", "");
+                                    try {
+                                        Class<?> clazz = Class.forName(className);
+                                        loadedClasses.put(clazz.getName(), clazz);
+                                    } catch (ClassNotFoundException e) {
+                                        logger.warn("Could not load class from JAR: {}", className);
+                                    }
+                                });
+                    }
                 }
             }
         } catch (IOException | URISyntaxException e) {

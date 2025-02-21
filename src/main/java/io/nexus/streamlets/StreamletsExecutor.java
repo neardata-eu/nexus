@@ -1,17 +1,13 @@
 package io.nexus.streamlets;
 
 import io.nexus.streamlets.compiler.StreamletLoader;
-import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.RequestContext;
-import com.google.common.annotations.VisibleForTesting;
-import io.nexus.streamlets.deserializers.StringDeserializer;
-import io.nexus.streamlets.durablelog.DurableLog;
-import io.nexus.streamlets.durablelog.FileSystemDurableLog;
-import io.nexus.streamlets.functions.CompressionStreamlet;
-import io.nexus.streamlets.functions.NoOpStreamlet;
-import io.nexus.streamlets.functions.WordCountStreamlet;
-import io.nexus.streamlets.metadata.*;
+import io.nexus.streamlets.metadata.MetadataService;
+import io.nexus.streamlets.metadata.Policy;
+import io.nexus.streamlets.metadata.Region;
+import io.nexus.streamlets.metadata.StreamletDescriptor;
 import io.nexus.streamlets.metadata.StreamletDescriptor.ExecuteOn;
+import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
 import io.nexus.streamlets.utils.FastPipedInputStream;
 import io.nexus.streamlets.utils.FastPipedOutputStream;
 import io.nexus.streamlets.utils.StreamletIO;
@@ -35,23 +31,18 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiConsumer;
 
 /**
- * This class checks the {@link MetadataService} of Nexus for policies and runs
- * streamlets on requests payloads according to the defined policies. Moreover,
- * in parallel to the execution of streamlets, this class also writes to the
- * {@link DurableLog} the incoming request. This is needed to perform retries in
- * case of failures within a data management processing pipeline.
+ * This class checks the {@link MetadataService} of Nexus for policies and runs streamlets on requests payloads
+ * according to the defined policies.
  */
 public class StreamletsExecutor {
     final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
     private final ScheduledExecutorService streamletExecutor;
-    private final DurableLog durableLog;
     private final MetadataService metadataService;
     private final StreamletLoader streamletLoader;
 
     public StreamletsExecutor(MetadataService metadataService) {
         // Create a separate thread pool for executing streamlets
-        this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(10, "streamlet-threadpool");
-        this.durableLog = new FileSystemDurableLog();
+        this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(40, "streamlet-threadpool");
         this.metadataService = metadataService;
         this.streamletLoader = new StreamletLoader(metadataService);
     }
@@ -164,23 +155,19 @@ public class StreamletsExecutor {
     private CompletableFuture<Long> processRequestContent(StreamPartitionPojo streamPartition, InputStream streamletInput,
             List<Streamlet> streamletsToBeExecuted, boolean forwardStream, RequestContext context, OutputStream streamletResult) {
         try {
-            // Create the resources for storing the input PUT request contents.
-            String scopedPartitionName = streamPartition.getScopedObjectName();
-            initializeDurableLogObject(streamPartition);
             // Instantiate the input stream for the request contents.
             logger.info("Submitting processing pipeline task for stream partition {}.", streamPartition);
-            FastPipedOutputStream durableLogOutput = new FastPipedOutputStream();
-            InputStream streamletPipelineInputStream = new FastPipedInputStream(durableLogOutput);
+            FastPipedOutputStream transferDataOutput = new FastPipedOutputStream();
+            InputStream streamletPipelineInputStream = new FastPipedInputStream(transferDataOutput);
             // Build the pipeline of Streamlets and connect their streams with the one from the interceptor.
             long startTime = System.nanoTime();
             CompletableFuture<Void> pipelineFuture = buildStreamletExecutionPipeline(streamletPipelineInputStream,
                     streamletResult, streamletsToBeExecuted, forwardStream, context);
             StreamletsMetrics.PIPELINE_BUILD_TIMER.record(System.nanoTime() - startTime);
-            // In parallel, the main thread (IO thread pool) can write the storage operation to the log,
-            // whereas we schedule the execution of the function pipeline in the streamlet pool.
-            CompletableFuture<Long> durableLogFuture = CompletableFuture.supplyAsync(() ->
-                    storeAndProcessContent(streamletInput, durableLogOutput, scopedPartitionName), this.streamletExecutor);
-            return pipelineFuture.thenCompose(v -> durableLogFuture);
+            // Write the request input stream through the Streamlet pipeline.
+            CompletableFuture<Long> transferInputDataFuture = CompletableFuture.supplyAsync(() ->
+                    transferInputData(streamletInput, transferDataOutput), this.streamletExecutor);
+            return pipelineFuture.thenCompose(v -> transferInputDataFuture);
         } catch (IOException e) {
             logger.error("Error processing request's content");
             throw new RuntimeException(e);
@@ -193,9 +180,8 @@ public class StreamletsExecutor {
      * @param streamletInput Input data from the request.
      * @param streamletPipelineInput Output stream containing the input of the Streamlet pipeline after being stored in
      *                               the durableLog.
-     * @param streamPartition Name for the stream partition at hand.
      */
-    private long storeAndProcessContent(InputStream streamletInput, OutputStream streamletPipelineInput, String streamPartition) {
+    private long transferInputData(InputStream streamletInput, OutputStream streamletPipelineInput) {
         int totalBytesRead = 0;
         int bytesRead;
         final int arraySize = 8192;
@@ -206,11 +192,8 @@ public class StreamletsExecutor {
                 // Append the new read data to the input stream of the processing pipeline for concurrent processing.
                 streamletPipelineInput.write((bytesRead == arraySize) ? objectBytes :
                         Arrays.copyOfRange(objectBytes, 0, bytesRead));
-                // Write the new read data to log service for failure recovery.
-                this.durableLog.writeToLogObject(streamPartition, objectBytes, bytesRead);
                 totalBytesRead += bytesRead;
             }
-            this.durableLog.closeLogObject(streamPartition);
             streamletPipelineInput.close();
         } catch (IOException ex) {
             throw new RuntimeException(ex);
@@ -258,11 +241,6 @@ public class StreamletsExecutor {
             pipeline.add(CompletableFuture.runAsync(() -> currentStreamlet.accept(dataStreams, context), this.streamletExecutor));
         }
         return Futures.allOf(pipeline);
-    }
-
-    private void initializeDurableLogObject(StreamPartitionPojo streamPartition) {
-        logger.info("Creating durable log object.");
-        this.durableLog.createLogObject(streamPartition);
     }
 
     // end region
