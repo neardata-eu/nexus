@@ -18,7 +18,6 @@ import java.util.stream.Collectors;
  * in the pipeline captures "where" (Region) a Streamlet should be executed, if it requires specific hardware, and
  * any additional parameters to be passed to the Streamlet during its execution.
  * - List of storage locations to store data to (only for terminal Streamlets).
- *
  * It is important to consider that the Pipeline of a Policy will be interpreted in sequential order: left-to-right
  * for PUTs and right-to-left for GETs. An administrator is responsible for understanding the implications of executing
  * Streamlets in a specific order. Moreover, administrators need to make sure that for the Streamlets performing some
@@ -160,6 +159,10 @@ public class Policy {
         this.storage = storage;
     }
 
+    public boolean hasDataRoutingStreamlet() {
+        return this.pipeline.stream().anyMatch(sed -> sed.getStreamlet().isDataRouting());
+    }
+
     @JsonIgnore
     public boolean isMock() {
         return this.id.equals(MOCK_POLICY);
@@ -176,4 +179,6 @@ public class Policy {
                 ", storage=" + storage +
                 '}';
     }
+
+
 }

@@ -9,9 +9,11 @@ import redis.clients.jedis.JedisPool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import redis.clients.jedis.JedisPubSub;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class MetadataService {
     private static final Logger logger = LoggerFactory.getLogger(MetadataService.class);
@@ -20,6 +22,7 @@ public class MetadataService {
     public static final String METADATA_STREAMLET_PREFIX = "streamletdescriptor:";
     public static final String METADATA_STREAMLET_CODE_PREFIX = "streamletcode:";
     public static final String METADATA_SWARMLET_PREFIX = "swarmletdescriptor:";
+    public static final String METADATA_S3_PREFIX = "s3config:";
 
     private final NexusConfig nexusConfig;
     private final JedisPool jedisPool;
@@ -28,6 +31,7 @@ public class MetadataService {
     final Map<String, StreamletDescriptor> streamletCache = new ConcurrentHashMap<>();
     final Map<String, SwarmletDescriptor> swarmletCache = new ConcurrentHashMap<>();
     final Map<String, String> codeCache = new ConcurrentHashMap<>();
+    final Map<String, S3StorageConfig> s3ConfigCache = new ConcurrentHashMap<>();
 
     /**
      * Constructs a MetadataService instance.
@@ -52,6 +56,7 @@ public class MetadataService {
             loadStreamletDescriptors(jedis);
             loadSwarmletDescriptors(jedis);
             loadStreamletCode(jedis);
+            loadS3StorageConfigs(jedis);
         } catch (Exception e) {
             logger.error("Error while loading initial data from Redis", e);
         }
@@ -103,7 +108,20 @@ public class MetadataService {
                 String json = jedis.get(key);
                 codeCache.put(key, json);
             } catch (Exception e) {
-                logger.error("Error while loading sttreamlet code with key: " + key, e);
+                logger.error("Error while loading streamlet code with key: " + key, e);
+            }
+        }
+    }
+
+    private void loadS3StorageConfigs(Jedis jedis) {
+        Set<String> keys = jedis.keys(METADATA_S3_PREFIX + "*");
+        for (String key : keys) {
+            try {
+                String json = jedis.get(key);
+                S3StorageConfig config = objectMapper.readValue(json, S3StorageConfig.class);
+                s3ConfigCache.put(key, config);
+            } catch (Exception e) {
+                logger.error("Error while loading S3 Storage config with key: " + key, e);
             }
         }
     }
@@ -135,6 +153,8 @@ public class MetadataService {
                                         swarmletCache.put(key, objectMapper.readValue(json, SwarmletDescriptor.class));
                                     } else if (key.startsWith(METADATA_STREAMLET_CODE_PREFIX)) {
                                         codeCache.put(key, json);
+                                    } else if (key.startsWith(METADATA_S3_PREFIX)) {
+                                        s3ConfigCache.put(key, objectMapper.readValue(json, S3StorageConfig.class));
                                     }
                                 } catch (Exception e) {
                                     logger.error("Error updating cache for key: " + key, e);
@@ -237,7 +257,7 @@ public class MetadataService {
             String key = METADATA_SWARMLET_PREFIX + id;
             return this.swarmletCache.get(key);
         } catch (Exception e) {
-            logger.warn("Error while getting swarmlet information from metadata service");
+            logger.warn("Error while getting swarmlet information from metadata service", e);
             throw new RuntimeException(e);
         }
     }
@@ -247,9 +267,13 @@ public class MetadataService {
             String key = METADATA_STREAMLET_CODE_PREFIX + id;
             return this.codeCache.get(key);
         } catch (Exception e) {
-            logger.warn("Error while getting swarmlet information from metadata service");
+            logger.warn("Error while getting streamlet information from metadata service", e);
             throw new RuntimeException(e);
         }
+    }
+
+    public List<S3StorageConfig> getS3ConfigsForPolicy(Policy policy) {
+        return policy.getStorage().stream().map(s -> this.s3ConfigCache.get(METADATA_S3_PREFIX + s)).toList();
     }
 
     /**

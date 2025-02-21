@@ -41,13 +41,13 @@ public class StreamletsExecutorTest {
     final String mockStreamName = "stream";
     // Mock StreamletDescriptor constants
     final StreamletDescriptor mockPutStreamlet = new StreamletDescriptor("io.nexus.streamlets.functions.NoOpStreamlet",
-            ExecuteOn.ALL, Hardware.NONE, true, false);
+            ExecuteOn.ALL, Hardware.NONE, true, false, false);
     // Mock Policy constants
     final String mockPolicySystem = "system";
     final List<StreamletExecutionDescriptor> mockPolicyPipeline = new ArrayList<>(List.of(
             new StreamletExecutionDescriptor(mockPutStreamlet, Region.EDGE, Collections.emptyList())));
     final StreamletDescriptor mockGetStreamlet = new StreamletDescriptor("io.nexus.streamlets.functions.NoOpStreamlet",
-            ExecuteOn.GET, Hardware.NONE, true, false);
+            ExecuteOn.GET, Hardware.NONE, true, false, false);
     private StreamPartitionPojo streamPartitionPojo;
     private InputStream inputStream;
     private OutputStream outputStream;

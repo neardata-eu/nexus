@@ -64,7 +64,7 @@ public class RequestManager implements Closeable {
                     .exceptionally(ex -> {
                         // The created PUT may need to be forwarded, which is fine.
                         if (ex.getCause() instanceof ForwardedRequestException) {
-                            logger.info("Multi-part upload to be forwarded, continue as normal.");
+                            logger.info("Multi-part upload to be forwarded or re-routed, continue as normal.");
                             return null;
                         } else {
                             throw new RuntimeException(ex);

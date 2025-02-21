@@ -1,18 +1,20 @@
 package io.nexus.streamlets.context;
 
+import io.nexus.streamlets.metadata.S3StorageConfig;
+import io.nexus.streamlets.utils.CachedS3Client;
 import org.slf4j.Logger;
 
 import io.nexus.streamlets.metadata.Policy;
+
+import java.io.InputStream;
+import java.util.List;
 
 /**
  * Since regular PUT and GET requests operate on MutableBlobMetadata, and
  * Multipart events operate on BlobMetadata, this interface provides a layer of
  * abstraction for both events.
- * 
  * Each implementation should provide the policy, stream, logger, setters, and
- * getters for their respective metadata type
- * 
- * TODO: Revisit this after multipart support changes
+ * getters for their respective metadata type.
  */
 public interface StreamletContext {
     /**
@@ -29,19 +31,11 @@ public interface StreamletContext {
      */
     Logger getLogger();
 
-    /**
-     * Gets all headers for the current context
-     * 
-     */
+    List<S3StorageConfig> getS3StorageConfigs();
+
+    void routeObjectToPolicyStorage(S3StorageConfig config, InputStream objectContent, long contentLength);
 
     String getUserMetadata(String key);
 
-    /**
-     * Sets custom headers for the current context
-     *
-     * @param headers the list of headers to set, where each header is represented
-     *                by a MetadataPair.
-     */
     String putUserMetadata(String key, String value);
-
 }

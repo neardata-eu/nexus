@@ -24,11 +24,11 @@ public class SwarmletMetadataManager {
 
     public void mainPrompt() {
         System.out.println("\nSwarmlet Management");
-        System.out.println("1. Create Swamrlet");
-        System.out.println("2. Read Swamrlet");
-        System.out.println("3. Update Swamrlet");
-        System.out.println("4. Delete Swamrlet");
-        System.out.println("5. List All Swamrlet");
+        System.out.println("1. Create Swarmlet");
+        System.out.println("2. Read Swarmlet");
+        System.out.println("3. Update Swarmlet");
+        System.out.println("4. Delete Swarmlet");
+        System.out.println("5. List All Swarmlet");
         System.out.println("6. Back");
 
         int choice = scanner.nextInt();

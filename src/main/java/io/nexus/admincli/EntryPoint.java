@@ -15,6 +15,7 @@ public class EntryPoint {
     private static StreamletDescriptorManager streamletDescriptorCLI;
     private static SwarmletMetadataManager swarmletDescriptorCLI;
     private static StreamletCodeManager streamletCodeManagerCLI;
+    private static S3StorageConfigManager s3StorageConfigManagerCLI;
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -22,6 +23,7 @@ public class EntryPoint {
         streamletDescriptorCLI = new StreamletDescriptorManager(scanner, redis, objectMapper);
         swarmletDescriptorCLI = new SwarmletMetadataManager(scanner, redis, objectMapper);
         streamletCodeManagerCLI = new StreamletCodeManager(scanner, redis);
+        s3StorageConfigManagerCLI = new S3StorageConfigManager(scanner, redis, objectMapper);
 
         while (running) {
             initialPrompt(scanner);
@@ -36,7 +38,8 @@ public class EntryPoint {
         System.out.println("2. Streamlet Metadata Management");
         System.out.println("3. Swarmlet Metadata Management");
         System.out.println("4. Streamlet Code Management");
-        System.out.println("5. Exit");
+        System.out.println("5. S3 Config Management");
+        System.out.println("6. Exit");
 
         boolean validChoice = false;
         int answer;
@@ -60,6 +63,9 @@ public class EntryPoint {
                     streamletCodeManagerCLI.mainPrompt();
                     break;
                 case 5:
+                    s3StorageConfigManagerCLI.mainPrompt();
+                    break;
+                case 6:
                     running = false;
                     break;
                 default:

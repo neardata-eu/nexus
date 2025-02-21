@@ -102,7 +102,8 @@ public class StreamletLoader {
                 }
             }
         } catch (IOException | URISyntaxException e) {
-            System.err.println("Error loading classes from package: " + packageName);
+            logger.error("Error loading classes from package: {}", packageName, e);
+            throw new RuntimeException(e);
         }
     }
 
@@ -117,7 +118,8 @@ public class StreamletLoader {
             Class<?> clazz = Class.forName(className);
             loadedClasses.put(clazz.getName(), clazz);
         } catch (ClassNotFoundException e) {
-            System.err.println("Could not load class: " + file);
+            logger.error("Could not load class: {}", file, e);
+            throw new RuntimeException(e);
         }
     }
 

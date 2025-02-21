@@ -4,11 +4,7 @@ import io.nexus.shared.metrics.GaugeMetric;
 import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
-import io.nexus.streamlets.metadata.Hardware;
-import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.metadata.Policy;
-import io.nexus.streamlets.metadata.Region;
-import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
+import io.nexus.streamlets.metadata.*;
 
 import io.nexus.streamlets.utils.*;
 import org.jclouds.blobstore.BlobStore;
@@ -61,6 +57,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     private final ConcurrentHashMap<String, MultiPartUploadState> multipartUploads;
     private final ContextManager contextManager;
     private final RequestManager requestManager;
+    private final CachedS3Client cachedS3Client;
 
     private enum InterSwarmletRoutingType {
         INTRA_REGION,
@@ -75,6 +72,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         this.multipartUploads = new ConcurrentHashMap<>();
         this.contextManager = ContextManager.getInstance();
         this.requestManager = new RequestManager(this);
+        this.cachedS3Client = new CachedS3Client();
     }
 
     @Override
@@ -221,7 +219,9 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             Region currentRegion = this.metadataService.getNexusConfig().getRegion();
             Hardware availableHardware = this.metadataService.getNexusConfig().getHardware();
             // Instantiate a context for the pipeline
-            RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy);
+            List<S3StorageConfig> s3StorageConfigs = this.metadataService.getS3ConfigsForPolicy(policy);
+                    RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy,
+                    blob.getMetadata().getName(), s3StorageConfigs, this.cachedS3Client);
             streamletContext.addTransformerStreamletsToMetadata(currentRegion);
             // These streams connect with the output of the Streamlet pipeline, so we can perform forward async.
             InputStream streamletInput = blob.getPayload().openStream();
@@ -248,15 +248,27 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                 // 4.2 Store the PUT contents in S3 and reply to the client.
                 startTime = System.nanoTime();
                 long contentLength = blob.getPayload().getContentMetadata().getContentLength();
-                Blob newBlob = this.blobBuilder(blob.getMetadata().getName())
-                        .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
-                        // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
-                        //  that change the length of the request when processed in streaming fashion.
-                        .contentLength(contentLength)
-                        .contentType(blob.getPayload().getContentMetadata().getContentType())
-                        .build();
-                String eTag = (putOptions == null) ? super.putBlob(containerName, newBlob) :
-                        super.putBlob(containerName, newBlob, putOptions);
+                String eTag;
+                // If there is a data routing streamlet, we interrupt the flow as the Streamlet is in charge of storing 
+                // data in the right storage according to its logic.
+                if (policy.hasDataRoutingStreamlet()) {
+                    pipelineFuture.join();
+                    throw new ForwardedRequestException("PUT routed to an alternative storage.");
+                } else {
+                    // Normal PUT against default storage.
+                    Blob newBlob = this.blobBuilder(blob.getMetadata().getName())
+                            .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
+                            // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
+                            //  that change the length of the request when processed in streaming fashion.
+                            .contentLength(contentLength)
+                            .contentType(blob.getPayload().getContentMetadata().getContentType())
+                            .build();
+                    eTag = (putOptions == null) ? super.putBlob(containerName, newBlob) :
+                            super.putBlob(containerName, newBlob, putOptions);
+                    // If there is user metadata, store it as tags in the object after the object is already stored.
+                    pipelineFuture.thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
+                            blob.getMetadata().getName(), streamletContext)).join();
+                }
                 // Record metrics.
                 double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
                 StreamletsMetrics.PUT_REQUEST_STORAGE_OPERATIONS_COUNTER.incrementCounter();
@@ -264,9 +276,6 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                 StreamletsMetrics.PUT_REQUEST_STORAGE_SIZE_GAUGE.record(transferSizeMB);
                 double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
                 StreamletsMetrics.PUT_REQUEST_STORAGE_THROUGHPUT_GAUGE.record(transferSpeedMBps);
-                // If there is user metadata, store it as tags in the object after the object is already stored.
-                pipelineFuture.thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
-                        blob.getMetadata().getName(), streamletContext)).join();
                 return eTag;
             }
         } catch (ForwardedRequestException e) {
@@ -333,7 +342,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             InputStream streamletOutputInputStream = new FastPipedInputStream(streamletOutput);
             FastPipedOutputStream streamletInputOutputStream = new FastPipedOutputStream();
             streamletInput = new FastPipedInputStream(streamletInputOutputStream);
-            RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy);
+            RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy,
+                    blobName, Collections.emptyList(), this.cachedS3Client);
             // We consider that the interception time up to this point, next phase is mainly transfer and processing.
             StreamletsMetrics.GET_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
             CompletableFuture<Void> getFuture = (nextSwarmletEndpoint != null) ?
@@ -555,6 +565,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     @Override
     public void close() throws IOException {
         this.requestManager.close();
+        this.cachedS3Client.close();
     }
 
     // end region
@@ -671,7 +682,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         }
 
         // 2. Check if this instance has been able to execute Streamlets for this Region. In the affirmative case, it
-        // means that we have to forward the request to the next Region. Otherwise, this Swamrlet may not have the
+        // means that we have to forward the request to the next Region. Otherwise, this Swarmlet may not have the
         // necessary hardware for executing the Streamlets, so forward to another Swarmlet in this Region if possible.
         boolean noStreamletsInRegion = policy.getStreamletsForRegion(currentRegion).isEmpty();
         boolean swarmletCanExecuteStreamlets = policy.canSwarmletExecuteStreamlets(currentRegion, availableHardware);

@@ -67,6 +67,7 @@ public class StreamletDescriptorManager {
         streamletDescriptor.setExecuteOn(inputExecuteOn(scanner));
         streamletDescriptor.setPartitionLocality(inputPartitionLocality(scanner));
         streamletDescriptor.setTransformsContent(inputTransformsContent(scanner));
+        streamletDescriptor.setDataRouting(inputDataRouting(scanner));
         streamletDescriptor.setHardware(inputHardware(scanner));
 
         // Validations and storage
@@ -123,6 +124,14 @@ public class StreamletDescriptorManager {
             System.out.println("\nCurrent partition locality support: "
                             + (streamletDescriptor.isPartitionLocality() ? "Supported" : "Not supported") + " ");
             streamletDescriptor.setPartitionLocality(inputPartitionLocality(scanner));
+
+            System.out.println("\nCurrent transforms content: "
+                    + (streamletDescriptor.isTransformsContent() ? "Yes" : "No") + " ");
+            streamletDescriptor.setTransformsContent(inputTransformsContent(scanner));
+
+            System.out.println("\nCurrent is data routing: "
+                    + (streamletDescriptor.isPartitionLocality() ? "Yes" : "No") + " ");
+            streamletDescriptor.setDataRouting(inputDataRouting(scanner));
 
             System.out.println("\nCurrently hardware required: " + streamletDescriptor.getHardware());
             streamletDescriptor.setHardware(inputHardware(scanner));
@@ -216,6 +225,10 @@ public class StreamletDescriptorManager {
 
     private static Boolean inputTransformsContent(Scanner scanner) {
         return inputBoolean(scanner, "Transforms content? (Y/N)");
+    }
+
+    private static Boolean inputDataRouting(Scanner scanner) {
+        return inputBoolean(scanner, "Is a data routing Streamlet? (Y/N)");
     }
 
     private static Boolean inputBoolean(Scanner scanner, String prompt) {

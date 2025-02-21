@@ -1,7 +1,11 @@
 package io.nexus.streamlets.context;
 
+import io.nexus.streamlets.metadata.S3StorageConfig;
+import io.nexus.streamlets.utils.CachedS3Client;
 import org.slf4j.Logger;
 import io.nexus.streamlets.metadata.Policy;
+
+import java.util.List;
 
 /**
  * ContextManager is a singleton class that provides methods to manage
@@ -29,7 +33,8 @@ public class ContextManager {
      * @param policy the current working Policy
      * @return a new RequestContext instance.
      */
-    public RequestContext createRequestStreamletContext(Logger logger, Policy policy) {
-        return new RequestContext(logger, policy);
+    public RequestContext createRequestStreamletContext(Logger logger, Policy policy, String blobName,
+                                                        List<S3StorageConfig> s3StorageConfigs, CachedS3Client cachedS3Client) {
+        return new RequestContext(logger, policy, blobName, s3StorageConfigs, cachedS3Client);
     }
 }

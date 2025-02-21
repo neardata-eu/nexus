@@ -1,5 +1,9 @@
 package io.nexus.streamlets.compiler;
 
+import io.nexus.streamlets.metadata.MetadataService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.tools.*;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
@@ -16,7 +20,7 @@ import java.util.Map;
  * to dynamically load and instantiate classes.
  */
  public class DynamicCompiler {
-
+    private static final Logger logger = LoggerFactory.getLogger(DynamicCompiler.class);
     private final JavaCompiler compiler;
     private final StandardJavaFileManager standardFileManager;
     private final Map<String, byte[]> compiledClasses = new HashMap<>();
@@ -40,7 +44,7 @@ import java.util.Map;
             compiledClasses.putAll(fileManager.getCompiledClasses());
         } else {
             diagnostics.getDiagnostics().forEach(d ->
-                    System.err.println("Compilation error: " + d.getMessage(null)));
+                    logger.error("Compilation error: " + d.getMessage(null)));
         }
         return success;
     }

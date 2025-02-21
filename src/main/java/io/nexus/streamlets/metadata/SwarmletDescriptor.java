@@ -3,7 +3,7 @@ package io.nexus.streamlets.metadata;
 /**
  * Metadata descriptor for a swarmlet (i.e., group of identical Nexus
  * worker instances running as a unified service). The descriptor of
- * the swamrlet captures the endpoint of the service, the "region" where
+ * the Swarmlet captures the endpoint of the service, the "region" where
  * the swarmlet is located and the specialized "hardware" available (e.g.,
  * GPU). This information is useful for taking routing decisions.
  */

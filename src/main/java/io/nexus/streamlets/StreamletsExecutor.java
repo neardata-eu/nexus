@@ -28,7 +28,6 @@ import java.io.OutputStream;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -142,10 +141,7 @@ public class StreamletsExecutor {
             return true;
         if (forwardStream & executeOn == ExecuteOn.PUT)
             return true;
-        if (!forwardStream & executeOn == ExecuteOn.GET)
-            return true;
-
-        return false;
+        return !forwardStream & executeOn == ExecuteOn.GET;
     }
 
     /**

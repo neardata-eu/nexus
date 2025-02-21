@@ -1,18 +1,19 @@
 package io.nexus.streamlets.context;
 
 import com.google.common.collect.ImmutableMap;
-import io.nexus.streamlets.Streamlet;
+import io.nexus.streamlets.ForwardedRequestException;
 import io.nexus.streamlets.metadata.Region;
-import io.nexus.streamlets.metadata.StreamletDescriptor;
-import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
+import io.nexus.streamlets.metadata.S3StorageConfig;
+import io.nexus.streamlets.utils.CachedS3Client;
 import io.nexus.streamlets.utils.ObjectTagsUtils;
 import org.slf4j.Logger;
 
 import io.nexus.streamlets.metadata.Policy;
 
+import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  * A class for handling the context for normal PUT and GET requests
@@ -20,11 +21,17 @@ import java.util.stream.Collectors;
 public class RequestContext implements StreamletContext {
     private final Logger logger;
     private final Policy policy;
+    private final CachedS3Client cachedS3Client;
+    private final String objectName;
+    List<S3StorageConfig> s3StorageConfigs;
     private final Map<String, String> metadata;
 
-    public RequestContext(Logger logger, Policy policy) {
+    public RequestContext(Logger logger, Policy policy, String objectName, List<S3StorageConfig> s3StorageConfigs, CachedS3Client cachedS3Client) {
         this.logger = logger;
         this.policy = policy;
+        this.objectName = objectName;
+        this.cachedS3Client = cachedS3Client;
+        this.s3StorageConfigs = s3StorageConfigs;
         this.metadata = new ConcurrentHashMap<>();
     }
 
@@ -36,6 +43,17 @@ public class RequestContext implements StreamletContext {
     @Override
     public Logger getLogger() {
         return logger;
+    }
+
+    @Override
+    public List<S3StorageConfig> getS3StorageConfigs() {
+        return this.s3StorageConfigs;
+    }
+
+    @Override
+    public void routeObjectToPolicyStorage(S3StorageConfig config, InputStream objectContent, long contentLength) {
+        this.cachedS3Client.routeObjectTo(config.getEndpoint(), objectContent, config.getAccessKey(),
+                config.getSecretKey(), config.getContainer(), objectName);
     }
 
     @Override
