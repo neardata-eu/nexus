@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: prometheus-svc
-  namespace: nexus-test
+  namespace: nexus-ns
 spec:
   type: ClusterIP
   ports:
@@ -16,7 +16,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: nexus-test
+  namespace: nexus-ns
   labels:
     app: prometheus
 data:
@@ -29,7 +29,7 @@ data:
           - targets: ["prometheus-svc:9090"]
 
       - job_name: "Nexus Metrics"
-        metrics_path: "/actuator/prometheus"
+        metrics_path: "/metrics"
         scrape_interval: 2s
         basic_auth:
           username: admin
@@ -44,7 +44,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus-deployment
-  namespace: nexus-test
+  namespace: nexus-ns
 spec:
   replicas: 1
   selector:

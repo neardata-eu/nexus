@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kafka-client
+  namespace: nexus-ns
+  labels:
+    app: kafka-client
+spec:
+  containers:
+  - name: kafka-client
+    image: confluentinc/cp-kafka
+    command: [ "sh", "-c", "sleep infinity" ]
+  restartPolicy: Always

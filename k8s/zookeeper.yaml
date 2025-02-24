@@ -4,7 +4,7 @@ metadata:
   labels:
     app: zookeeper-svc
   name: zookeeper-svc
-  namespace: nexus-test
+  namespace: nexus-ns
 spec:
   type: NodePort
   ports:
@@ -21,7 +21,7 @@ metadata:
   labels:
     app: zookeeper
   name: zookeeper-deployment
-  namespace: nexus-test
+  namespace: nexus-ns
 spec:
   replicas: 1
   selector:
