@@ -5,7 +5,7 @@ import java.util.regex.Matcher;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.MultipartUpload;
 
-import io.nexus.streamlets.StreamPartitionPojo;
+import io.nexus.streamlets.StreamPartition;
 
 /**
  * Stream names are checked against each system's naming convention to affirm
@@ -54,15 +54,15 @@ public class StreamNameUtils {
     }
 
     public static StreamingSystems getSystemFromChunk(String chunkName) {
-        Matcher matcher = StreamPartitionPojo.KAFKA_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        Matcher matcher = StreamPartition.KAFKA_PARTITION_OBJECT_PATTERN.matcher(chunkName);
         if (matcher.matches())
             return StreamingSystems.KAFKA;
 
-        matcher = StreamPartitionPojo.PULSAR_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        matcher = StreamPartition.PULSAR_PARTITION_OBJECT_PATTERN.matcher(chunkName);
         if (matcher.matches())
             return StreamingSystems.PULSAR;
 
-        matcher = StreamPartitionPojo.DEFAULT_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        matcher = StreamPartition.DEFAULT_PARTITION_OBJECT_PATTERN.matcher(chunkName);
         if (matcher.matches())
             return StreamingSystems.DEFAULT;
 

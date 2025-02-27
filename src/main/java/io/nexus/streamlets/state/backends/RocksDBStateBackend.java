@@ -2,6 +2,7 @@ package io.nexus.streamlets.state.backends;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexus.streamlets.state.StreamletStateBackend;
+import io.nexus.streamlets.utils.SerializationUtils;
 import org.rocksdb.RocksDB;
 import org.rocksdb.Options;
 
@@ -10,7 +11,6 @@ import org.rocksdb.Options;
  */
 public class RocksDBStateBackend implements StreamletStateBackend {
     private final RocksDB rocksDB;
-    private final ObjectMapper objectMapper;
 
     static {
         RocksDB.loadLibrary();
@@ -20,7 +20,6 @@ public class RocksDBStateBackend implements StreamletStateBackend {
         try {
             Options options = new Options().setCreateIfMissing(true);
             this.rocksDB = RocksDB.open(options, dbPath);
-            this.objectMapper = new ObjectMapper();
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize RocksDB", e);
         }
@@ -29,7 +28,7 @@ public class RocksDBStateBackend implements StreamletStateBackend {
     @Override
     public <T> void save(String key, T value) {
         try {
-            this.rocksDB.put(key.getBytes(), objectMapper.writeValueAsBytes(value));
+            this.rocksDB.put(key.getBytes(), SerializationUtils.kryoSerialize(value));
         } catch (Exception e) {
             throw new RuntimeException("Failed to save value to RocksDB", e);
         }
@@ -39,7 +38,7 @@ public class RocksDBStateBackend implements StreamletStateBackend {
     public <T> T load(String key, Class<T> type) {
         try {
             byte[] data = this.rocksDB.get(key.getBytes());
-            return data != null ? this.objectMapper.readValue(data, type) : null;
+            return data != null ? SerializationUtils.kryoDeserialize(data, type) : null;
         } catch (Exception e) {
             throw new RuntimeException("Failed to load value from RocksDB", e);
         }

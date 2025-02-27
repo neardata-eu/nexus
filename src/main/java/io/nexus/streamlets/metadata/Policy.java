@@ -108,6 +108,15 @@ public class Policy {
                 && (requiredHardware.isEmpty() || requiredHardware.get().equals(availableHardware));
     }
 
+    public boolean anyStreamletToRun(Region currentRegion, Hardware availableHardware, boolean isPut) {
+        StreamletDescriptor.ExecuteOn executeOn = isPut ? StreamletDescriptor.ExecuteOn.PUT : StreamletDescriptor.ExecuteOn.GET;
+        boolean streamletsToRunForThisRequestType = getStreamletsForRegion(currentRegion).stream()
+                .anyMatch(sed ->
+                    sed.getStreamlet().getExecuteOn().equals(StreamletDescriptor.ExecuteOn.ALL)
+                    || sed.getStreamlet().getExecuteOn().equals(executeOn));
+        return canSwarmletExecuteStreamlets(currentRegion, availableHardware) && streamletsToRunForThisRequestType;
+    }
+
     public String getId() {
         return id;
     }
@@ -159,8 +168,24 @@ public class Policy {
         this.storage = storage;
     }
 
-    public boolean hasDataRoutingStreamlet() {
-        return this.pipeline.stream().anyMatch(sed -> sed.getStreamlet().isDataRouting());
+    public boolean hasDataRoutingStreamlet(Region region) {
+        return this.pipeline.stream()
+                .filter(sed -> sed.getRegion().equals(region))
+                .anyMatch(sed -> sed.getStreamlet().isDataRouting());
+    }
+
+    public boolean hasDataSourceStreamlet(Region region) {
+        return this.pipeline.stream()
+                .filter(sed -> sed.getRegion().equals(region))
+                .anyMatch(sed -> sed.getStreamlet().isDataSource());
+    }
+
+    public Optional<String> getDataSourceStreamletId(Region region) {
+        return this.pipeline.stream()
+                .filter(sed -> sed.getRegion().equals(region))
+                .filter(sed -> sed.getStreamlet().isDataSource())
+                .map(sed -> sed.getStreamlet().getId())
+                .findFirst();
     }
 
     @JsonIgnore

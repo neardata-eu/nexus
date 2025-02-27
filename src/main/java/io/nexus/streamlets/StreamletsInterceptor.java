@@ -5,12 +5,7 @@ import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
 
-import io.nexus.streamlets.metadata.Hardware;
-import io.nexus.streamlets.metadata.MetadataService;
-import io.nexus.streamlets.metadata.Policy;
-import io.nexus.streamlets.metadata.Region;
-import io.nexus.streamlets.metadata.S3StorageConfig;
-import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
+import io.nexus.streamlets.metadata.*;
 import io.nexus.streamlets.utils.CachedS3Client;
 import io.nexus.streamlets.utils.FastPipedInputStream;
 import io.nexus.streamlets.utils.FastPipedOutputStream;
@@ -18,6 +13,9 @@ import io.nexus.streamlets.utils.MultiPartUploadState;
 import io.nexus.streamlets.utils.ObjectTagsUtils;
 import io.nexus.streamlets.utils.RequestManager;
 import io.nexus.streamlets.utils.StreamNameUtils;
+import io.pravega.common.concurrent.ExecutorServiceHelpers;
+import io.pravega.common.concurrent.Futures;
+import io.pravega.common.io.ByteBufferOutputStream;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -55,6 +53,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
@@ -70,6 +69,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     private final ContextManager contextManager;
     private final RequestManager requestManager;
     private final CachedS3Client cachedS3Client;
+    private final ScheduledExecutorService dataTransferExecutor;
 
     private enum InterSwarmletRoutingType {
         INTRA_REGION,
@@ -83,8 +83,9 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         this.streamletsExecutor = new StreamletsExecutor(metadataService);
         this.multipartUploads = new ConcurrentHashMap<>();
         this.contextManager = ContextManager.getInstance();
-        this.requestManager = new RequestManager(this);
         this.cachedS3Client = new CachedS3Client();
+        this.dataTransferExecutor = ExecutorServiceHelpers.newScheduledThreadPool(40, "data-transfer-threadpool");
+        this.requestManager = new RequestManager(this, dataTransferExecutor);
     }
 
     @Override
@@ -213,10 +214,10 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         logger.info("PUT request for {} / {}.", containerName, blob.getMetadata().getName());
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
-        StreamPartitionPojo streamPartition;
+        StreamPartition streamPartition;
         try {
             policy = checkRequestAndRetrievePolicy(containerName, blob);
-            streamPartition = StreamPartitionPojo.getStreamPartitionPojo(blob.getMetadata().getName(), policy.getSystem(), containerName);
+            streamPartition = StreamPartition.getStreamPartitionPojo(blob.getMetadata().getName(), policy.getSystem(), containerName);
         } catch (MalformedStreamStorageRequestException | NoPolicySetException e) {
             // Either the request is malformed or there are no policies, so just execute operation against S3 endpoint.
             logger.warn("Malformed request, forwarding without processing.", e);
@@ -232,8 +233,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             Hardware availableHardware = this.metadataService.getNexusConfig().getHardware();
             // Instantiate a context for the pipeline
             List<S3StorageConfig> s3StorageConfigs = this.metadataService.getS3ConfigsForPolicy(policy);
-                    RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy,
-                    blob.getMetadata().getName(), s3StorageConfigs, this.cachedS3Client);
+            RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy,
+                    streamPartition, s3StorageConfigs, this.cachedS3Client);
             streamletContext.addTransformerStreamletsToMetadata(currentRegion);
             // These streams connect with the output of the Streamlet pipeline, so we can perform forward async.
             InputStream streamletInput = blob.getPayload().openStream();
@@ -263,18 +264,12 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                 String eTag;
                 // If there is a data routing streamlet, we interrupt the flow as the Streamlet is in charge of storing 
                 // data in the right storage according to its logic.
-                if (policy.hasDataRoutingStreamlet()) {
+                if (policy.hasDataRoutingStreamlet(currentRegion)) {
                     pipelineFuture.join();
                     throw new ForwardedRequestException("PUT routed to an alternative storage.");
                 } else {
                     // Normal PUT against default storage.
-                    Blob newBlob = this.blobBuilder(blob.getMetadata().getName())
-                            .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
-                            // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
-                            //  that change the length of the request when processed in streaming fashion.
-                            .contentLength(contentLength)
-                            .contentType(blob.getPayload().getContentMetadata().getContentType())
-                            .build();
+                    Blob newBlob = buildPutBlob(blob, streamletOutputInputStream, contentLength);
                     eTag = (putOptions == null) ? super.putBlob(containerName, newBlob) :
                             super.putBlob(containerName, newBlob, putOptions);
                     // If there is user metadata, store it as tags in the object after the object is already stored.
@@ -282,12 +277,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                             blob.getMetadata().getName(), streamletContext)).join();
                 }
                 // Record metrics.
-                double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
-                StreamletsMetrics.PUT_REQUEST_STORAGE_OPERATIONS_COUNTER.incrementCounter();
-                double transferSizeMB = (contentLength / (1024.0 * 1024.0));
-                StreamletsMetrics.PUT_REQUEST_STORAGE_SIZE_GAUGE.record(transferSizeMB);
-                double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
-                StreamletsMetrics.PUT_REQUEST_STORAGE_THROUGHPUT_GAUGE.record(transferSpeedMBps);
+                recordPutMetrics(startTime, contentLength);
                 return eTag;
             }
         } catch (ForwardedRequestException e) {
@@ -342,7 +332,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             // Unexpected error, rethrow.
             throw new RuntimeException(ex);
         }
-        StreamPartitionPojo streamPartition = StreamPartitionPojo.getStreamPartitionPojo(blobName, policy.getSystem(), containerName);
+        StreamPartition streamPartition = StreamPartition.getStreamPartitionPojo(blobName, policy.getSystem(), containerName);
         try {
             // 2. For GETs, we need to check if we are the final Region, because the processing goes backwards. In other
             // words, we get what is the next Swarmlet in the pipeline. For mock policies we do not apply routing.
@@ -356,22 +346,27 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             FastPipedOutputStream streamletInputOutputStream = new FastPipedOutputStream();
             streamletInput = new FastPipedInputStream(streamletInputOutputStream);
             RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy,
-                    blobName, Collections.emptyList(), this.cachedS3Client);
+                    streamPartition, Collections.emptyList(), this.cachedS3Client);
             // We consider that the interception time up to this point, next phase is mainly transfer and processing.
             StreamletsMetrics.GET_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
-            CompletableFuture<Void> getFuture = (nextSwarmletEndpoint != null) ?
-                this.requestManager.forwardGetRequest(nextSwarmletEndpoint, containerName, blobName, streamletInputOutputStream, streamletContext) :
-                this.requestManager.doAsyncGetRequest(containerName, blobName, getOptions, streamletInputOutputStream, streamletContext);
-            // 4. Try to execute the reverse Streamlets in our Region, if we are the right Swarmlet instance.
-            Blob resultBlob = super.blobBuilder(blobName)
-                    .payload(streamletOutputInputStream)
-                    .userMetadata(streamletContext.getUserMetadataCopy())
-                    .build();
-            CompletableFuture<Void> transfersFuture = CompletableFuture.allOf(getFuture, tryProcess(policy, currentRegion,
-                    availableHardware, streamPartition, streamletInput, false, streamletOutput, streamletContext))
-                    .handle(handleStreamletExceptions(resultBlob, streamletOutputInputStream, streamletInput, streamletOutput));
-            // This metadata is needed by S3 proxy handler.
-            resultBlob.getMetadata().setLastModified(new Date());
+            // 4. Start the data transfer asynchronously depending on the pipeline definition. We first check if there
+            // is a DataSourceStreamlet in this region before issuing the actual GET.
+            boolean anyStreamletToExecute = policy.anyStreamletToRun(currentRegion, availableHardware, false);
+            FastPipedOutputStream actualOutputStream = anyStreamletToExecute ? streamletInputOutputStream : streamletOutput;
+            CompletableFuture<Void> getFuture = this.streamletsExecutor.getPreGetTransferFuture(policy, currentRegion,
+                     // Transfer data to the pipeline only if there are other Streamlets
+                     streamPartition, streamletContext, actualOutputStream);
+            if (getFuture == null) {
+                // 4.1 If data needs to be requested externally, decide the right type (i.e., forward or GET to storage).
+                getFuture = (nextSwarmletEndpoint != null) ?
+                        this.requestManager.forwardGetRequest(nextSwarmletEndpoint, containerName, blobName, actualOutputStream, streamletContext) :
+                        this.requestManager.doAsyncGetRequest(containerName, blobName, getOptions, actualOutputStream, streamletContext);
+            }
+            Blob resultBlob = buildGetBlob(blobName, streamletOutputInputStream, streamletContext);
+            // 5. Try to execute the reverse Streamlets in our Region, if we are the right Swarmlet instance.
+            CompletableFuture<Void> pipelineFuture = CompletableFuture.allOf(getFuture, tryProcess(policy, currentRegion, availableHardware,
+                            streamPartition, streamletInput, false, streamletOutput, streamletContext))
+                    .handle(handleStreamletExceptions(streamletOutputInputStream, streamletInput, actualOutputStream));
             return resultBlob;
         } catch (NoSuitableSwarmletInRegionException e) {
             // Cannot meet specified execution constraints in any Swarmlet, so throw exception.
@@ -379,7 +374,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             throw new RuntimeException(e);
         } catch (Exception ex) {
             // Problem dealing with data streams.
-            logger.error("Problem dealing with data streams.");
+            logger.error("Problem dealing with data streams.", ex);
             throw new RuntimeException(ex);
         }
     }
@@ -453,12 +448,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         // Return the result to the client for this part.
         MultipartPart multipartPart = MultipartPart.create(partNumber, transferredBytes, UUID.randomUUID().toString(), new Date());
         // Record metrics.
-        double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
-        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_OPERATIONS_COUNTER.incrementCounter();
-        double transferSizeMB = (transferredBytes / (1024.0 * 1024.0));
-        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_SIZE_GAUGE.record(transferSizeMB);
-        double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
-        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_THROUGHPUT_GAUGE.record(transferSpeedMBps);
+        recordMultipartUploadMetrics(startTime, transferredBytes);
         return multipartPart;
     }
 
@@ -579,6 +569,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     public void close() throws IOException {
         this.requestManager.close();
         this.cachedS3Client.close();
+        ExecutorServiceHelpers.shutdown(this.dataTransferExecutor);
     }
 
     // end region
@@ -586,16 +577,17 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     // being private methods region
 
     private CompletableFuture<Long> tryProcess(Policy policy, Region currentRegion, Hardware availableHardware,
-                                               StreamPartitionPojo streamPartition, InputStream streamletInput, boolean isPut,
+                                               StreamPartition streamPartition, InputStream streamletInput, boolean isPut,
                                                OutputStream streamletResult, RequestContext streamletContext) {
-        if (policy.canSwarmletExecuteStreamlets(currentRegion, availableHardware)) {
+        if (policy.anyStreamletToRun(currentRegion, availableHardware, isPut)) {
             // We are in the right Swarmlet, process the request.
             return doProcess(policy, streamPartition, streamletInput, isPut, streamletResult, streamletContext);
         }
+        logger.info("Trying to process but no Streamlets to execute in {} request for {}.", isPut ? "PUT" : "GET", streamPartition);
         return CompletableFuture.completedFuture(null);
     }
 
-    private CompletableFuture<Long> doProcess(Policy policy, StreamPartitionPojo streamPartition, InputStream streamletInput,
+    private CompletableFuture<Long> doProcess(Policy policy, StreamPartition streamPartition, InputStream streamletInput,
                                               boolean isPut, OutputStream streamletResult, RequestContext streamletContext) {
         try {
             long startTime = System.nanoTime();
@@ -728,8 +720,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         return policy;
     }
 
-    private BiFunction<Void, Throwable, Void> handleStreamletExceptions(Blob resultBlob,
-                                                                        InputStream streamletOutputInputStream,
+    private <T> BiFunction<T, Throwable, T> handleStreamletExceptions(InputStream streamletOutputInputStream,
                                                                         InputStream streamletInput,
                                                                         FastPipedOutputStream streamletOutput) {
         return (v, ex) -> {
@@ -765,6 +756,43 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         if (firstException != null) {
             throw new RuntimeException("Error closing streams", firstException);
         }
+    }
+
+    private Blob buildGetBlob(String blobName, InputStream streamletOutputInputStream, RequestContext streamletContext) {
+        Blob newBlob = super.blobBuilder(blobName)
+                .payload(streamletOutputInputStream)
+                .userMetadata(streamletContext.getUserMetadataCopy())
+                .build();
+        newBlob.getMetadata().setLastModified(new Date()); // This metadata is needed by S3 proxy handler.
+        return newBlob;
+    }
+
+    private Blob buildPutBlob(Blob blob, InputStream streamletOutputInputStream, long contentLength) {
+        return this.blobBuilder(blob.getMetadata().getName())
+                .payload(Payloads.newInputStreamPayload(streamletOutputInputStream))
+                // TODO: Some S3-compatible backends require content length, which is problematic for streamlets
+                //  that change the length of the request when processed in streaming fashion.
+                .contentLength(contentLength)
+                .contentType(blob.getPayload().getContentMetadata().getContentType())
+                .build();
+    }
+
+    private static void recordPutMetrics(long startTime, long contentLength) {
+        double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+        StreamletsMetrics.PUT_REQUEST_STORAGE_OPERATIONS_COUNTER.incrementCounter();
+        double transferSizeMB = (contentLength / (1024.0 * 1024.0));
+        StreamletsMetrics.PUT_REQUEST_STORAGE_SIZE_GAUGE.record(transferSizeMB);
+        double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+        StreamletsMetrics.PUT_REQUEST_STORAGE_THROUGHPUT_GAUGE.record(transferSpeedMBps);
+    }
+
+    private static void recordMultipartUploadMetrics(long startTime, long transferredBytes) {
+        double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_OPERATIONS_COUNTER.incrementCounter();
+        double transferSizeMB = (transferredBytes / (1024.0 * 1024.0));
+        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_SIZE_GAUGE.record(transferSizeMB);
+        double transferSpeedMBps = transferSizeMB / operationTimeSeconds;
+        StreamletsMetrics.MULTIPART_UPLOAD_REQUEST_PART_THROUGHPUT_GAUGE.record(transferSpeedMBps);
     }
 
     // end region

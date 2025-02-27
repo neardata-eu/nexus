@@ -1,7 +1,7 @@
 package io.nexus.streamlets.context;
 
 import com.google.common.collect.ImmutableMap;
-import io.nexus.streamlets.ForwardedRequestException;
+import io.nexus.streamlets.StreamPartition;
 import io.nexus.streamlets.metadata.Region;
 import io.nexus.streamlets.metadata.S3StorageConfig;
 import io.nexus.streamlets.utils.CachedS3Client;
@@ -22,14 +22,15 @@ public class RequestContext implements StreamletContext {
     private final Logger logger;
     private final Policy policy;
     private final CachedS3Client cachedS3Client;
-    private final String objectName;
+    private final StreamPartition streamPartition;
     List<S3StorageConfig> s3StorageConfigs;
     private final Map<String, String> metadata;
 
-    public RequestContext(Logger logger, Policy policy, String objectName, List<S3StorageConfig> s3StorageConfigs, CachedS3Client cachedS3Client) {
+    public RequestContext(Logger logger, Policy policy, StreamPartition streamPartition,
+                          List<S3StorageConfig> s3StorageConfigs, CachedS3Client cachedS3Client) {
         this.logger = logger;
         this.policy = policy;
-        this.objectName = objectName;
+        this.streamPartition = streamPartition;
         this.cachedS3Client = cachedS3Client;
         this.s3StorageConfigs = s3StorageConfigs;
         this.metadata = new ConcurrentHashMap<>();
@@ -37,12 +38,17 @@ public class RequestContext implements StreamletContext {
 
     @Override
     public Policy getPolicy() {
-        return policy;
+        return this.policy;
     }
 
     @Override
     public Logger getLogger() {
-        return logger;
+        return this.logger;
+    }
+
+    @Override
+    public StreamPartition getStreamPartition() {
+        return this.streamPartition;
     }
 
     @Override
@@ -53,7 +59,13 @@ public class RequestContext implements StreamletContext {
     @Override
     public void routeObjectToPolicyStorage(S3StorageConfig config, InputStream objectContent, long contentLength) {
         this.cachedS3Client.routeObjectTo(config.getEndpoint(), objectContent, config.getAccessKey(),
-                config.getSecretKey(), config.getContainer(), objectName);
+                config.getSecretKey(), config.getContainer(), this.streamPartition, contentLength);
+    }
+
+    @Override
+    public InputStream fetchObjectFromPolicyStorage(S3StorageConfig config, StreamPartition streamPartition) {
+        return this.cachedS3Client.fetchObjectFrom(config.getEndpoint(), config.getAccessKey(),
+                config.getSecretKey(), config.getContainer(), streamPartition);
     }
 
     @Override

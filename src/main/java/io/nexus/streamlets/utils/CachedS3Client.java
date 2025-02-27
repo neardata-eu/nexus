@@ -1,5 +1,6 @@
 package io.nexus.streamlets.utils;
 
+import io.nexus.streamlets.StreamPartition;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
@@ -14,17 +15,24 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Creates S3 clients to different endpoints and keeps them cached for futher reuse.
+ * Creates S3 clients to different endpoints and keeps them cached for further reuse.
  */
 public class CachedS3Client implements Closeable {
 
     private final Map<String, BlobStoreContext> contextCache = new ConcurrentHashMap<>();
 
     public void routeObjectTo(String endpoint, InputStream objectContent, String accessKey, String secretKey,
-                              String container, String blobName) {
+                              String container, StreamPartition streamPartition, long contentLength) {
         BlobStore blobStore = this.contextCache.computeIfAbsent(endpoint, key -> createContext(key, accessKey, secretKey))
                 .getBlobStore();
-        uploadBlob(blobStore, objectContent, container, blobName);
+        uploadBlob(blobStore, objectContent, container, streamPartition, contentLength);
+    }
+
+    public InputStream fetchObjectFrom(String endpoint, String accessKey, String secretKey, String container,
+                                       StreamPartition streamPartition) {
+        BlobStore blobStore = this.contextCache.computeIfAbsent(endpoint, key -> createContext(key, accessKey, secretKey))
+                .getBlobStore();
+        return getBlobInputStream(blobStore, container, streamPartition);
     }
 
     private BlobStoreContext createContext(String endpoint, String accessKey, String secretKey) {
@@ -38,18 +46,28 @@ public class CachedS3Client implements Closeable {
                 .buildView(BlobStoreContext.class);
     }
 
-    private void uploadBlob(BlobStore blobStore, InputStream inputStream, String container, String blobName) {
+    private void uploadBlob(BlobStore blobStore, InputStream inputStream, String container,
+                            StreamPartition streamPartition, long contentLength) {
         Blob blob = null;
         try {
-            blob = blobStore.blobBuilder(blobName)
+            blob = blobStore.blobBuilder(streamPartition.getScopedObjectName())
                     .payload(Payloads.newInputStreamPayload(inputStream))
-                    .contentLength(5242880)
+                    .contentLength(contentLength)
                     .build();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
         blobStore.putBlob(container, blob);
-        System.out.println("Uploaded blob: " + blobName);
+    }
+
+    private InputStream getBlobInputStream(BlobStore blobStore, String containerName, StreamPartition streamPartition) {
+        Blob blob = null;
+        try {
+            blob = blobStore.getContext().getBlobStore().getBlob(containerName, streamPartition.getScopedObjectName());
+            return blob.getPayload().openStream();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public void close() {

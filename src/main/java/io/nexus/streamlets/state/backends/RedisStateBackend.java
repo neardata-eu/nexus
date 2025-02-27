@@ -16,18 +16,18 @@ public class RedisStateBackend implements StreamletStateBackend {
 
     @Override
     public <T> void save(String key, T value) {
-        jedis.set(key, SerializationUtils.serialize(value));
+        jedis.set(key.getBytes(), SerializationUtils.kryoSerialize(value));
     }
 
     @Override
     public <T> T load(String key, Class<T> type) {
-        String data = jedis.get(key);
-        return data != null ? SerializationUtils.deserialize(data, type) : null;
+        byte[] data = jedis.get(key.getBytes());
+        return data != null ? SerializationUtils.kryoDeserialize(data, type) : null;
     }
 
     @Override
     public void delete(String key) {
-        jedis.del(key);
+        jedis.del(key.getBytes());
     }
 }
 

@@ -4,7 +4,6 @@ import com.google.common.net.HttpHeaders;
 import io.nexus.streamlets.ForwardedRequestException;
 import io.nexus.streamlets.StreamletsMetrics;
 import io.nexus.streamlets.context.RequestContext;
-import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -41,10 +40,10 @@ public class RequestManager implements Closeable {
     private final CloseableHttpClient client;
     private final ScheduledExecutorService dataTransferExecutor;
 
-    public RequestManager(ForwardingBlobStore blobStore) {
+    public RequestManager(ForwardingBlobStore blobStore, ScheduledExecutorService dataTransferExecutor) {
         this.blobStore = blobStore;
         this.client = HttpClients.createDefault();
-        this.dataTransferExecutor = ExecutorServiceHelpers.newScheduledThreadPool(40, "data-transfer-threadpool");
+        this.dataTransferExecutor = dataTransferExecutor;
     }
 
     public void initiatePutRequestFromMultipartUpload(MultiPartUploadState uploadState) {

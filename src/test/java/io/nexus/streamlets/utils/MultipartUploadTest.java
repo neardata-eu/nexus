@@ -41,7 +41,7 @@ public class MultipartUploadTest {
         long partSize = totalFileSize / numberOfParts;
 
         String bucketName = "test-metadata";
-        String objectKey = "scope1/stream/test.txt";
+        String objectKey = "scope2/stream/test.txt";
         File file = new File("/tmp/test.txt");
         File downloadedFile = new File("/tmp/test_downloaded.txt");
 

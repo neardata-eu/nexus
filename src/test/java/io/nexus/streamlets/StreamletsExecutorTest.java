@@ -2,7 +2,6 @@ package io.nexus.streamlets;
 
 import io.nexus.configuration.NexusConfig;
 import io.nexus.streamlets.context.RequestContext;
-import io.nexus.streamlets.functions.NoOpStreamlet;
 import io.nexus.streamlets.metadata.Hardware;
 import io.nexus.streamlets.metadata.MetadataService;
 import io.nexus.streamlets.metadata.Policy;
@@ -41,14 +40,14 @@ public class StreamletsExecutorTest {
     final String mockStreamName = "stream";
     // Mock StreamletDescriptor constants
     final StreamletDescriptor mockPutStreamlet = new StreamletDescriptor("io.nexus.streamlets.functions.NoOpStreamlet",
-            ExecuteOn.ALL, Hardware.NONE, true, false, false);
+            ExecuteOn.ALL, Hardware.NONE, true, false, false, false);
     // Mock Policy constants
     final String mockPolicySystem = "system";
     final List<StreamletExecutionDescriptor> mockPolicyPipeline = new ArrayList<>(List.of(
             new StreamletExecutionDescriptor(mockPutStreamlet, Region.EDGE, Collections.emptyList())));
     final StreamletDescriptor mockGetStreamlet = new StreamletDescriptor("io.nexus.streamlets.functions.NoOpStreamlet",
-            ExecuteOn.GET, Hardware.NONE, true, false, false);
-    private StreamPartitionPojo streamPartitionPojo;
+            ExecuteOn.GET, Hardware.NONE, true, false, false, false);
+    private StreamPartition streamPartitionPojo;
     private InputStream inputStream;
     private OutputStream outputStream;
     private RequestContext mockRequestContext;
@@ -60,7 +59,7 @@ public class StreamletsExecutorTest {
         nexusConfig = Mockito.mock(NexusConfig.class);
         streamletsExecutor = new StreamletsExecutor(metadataService);
         mockPolicy = Mockito.mock(Policy.class);
-        streamPartitionPojo = Mockito.mock(StreamPartitionPojo.class);
+        streamPartitionPojo = Mockito.mock(StreamPartition.class);
         mockRequestContext = Mockito.mock(RequestContext.class);
     }
     

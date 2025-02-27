@@ -1,13 +1,12 @@
 package io.nexus.streamlets.state;
 
 import java.util.HashMap;
-import java.util.Map;
 import java.util.function.BiFunction;
 
 public class PersistentMapTestFunction implements BiFunction<String, String, String> {
 
     @Persistent(name = "persistentMap", type = StatePersistenceType.SHARED)
-    private final Map<String, String> persistentMap = new HashMap<>();
+    private final HashMap<String, String> persistentMap = new HashMap<>();
 
     @Override
     public String apply(String a, String b) {

@@ -4,7 +4,7 @@ import java.io.File;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class StreamPartitionPojo {
+public class StreamPartition {
 
     // This regex is for experimental .txt files only
     public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN = Pattern
@@ -24,8 +24,8 @@ public class StreamPartitionPojo {
     public final String partition;
     public final String object;
 
-    public StreamPartitionPojo(String containerName, String scopeName, String streamName, String partitionName,
-            String objectName) {
+    public StreamPartition(String containerName, String scopeName, String streamName, String partitionName,
+                           String objectName) {
         this.container = containerName;
         this.scope = scopeName;
         this.stream = streamName;
@@ -39,8 +39,8 @@ public class StreamPartitionPojo {
                 + stream + '\'' + ", partition='" + partition + '\'' + ", object='" + object + '\'' + '}';
     }
 
-    public static StreamPartitionPojo getStreamPartitionPojo(String objectPath, String streamingSystem,
-            String container) {
+    public static StreamPartition getStreamPartitionPojo(String objectPath, String streamingSystem,
+                                                         String container) {
         return switch (streamingSystem) {
             case "kafka" -> buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
             case "pulsar" -> buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
@@ -50,12 +50,12 @@ public class StreamPartitionPojo {
         };
     }
 
-    public static StreamPartitionPojo buildStreamPartitionPojoFromKafkaRequestPath(
+    public static StreamPartition buildStreamPartitionPojoFromKafkaRequestPath(
             String fullyQualifiedKafkaRequestPath, String container) {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedKafkaRequestPath);
         if (matcher.matches()) {
 
-            return new StreamPartitionPojo(container, matcher.group(1), matcher.group(2),
+            return new StreamPartition(container, matcher.group(1), matcher.group(2),
                     matcher.group(2), matcher.group(3));
         }
 
@@ -63,13 +63,13 @@ public class StreamPartitionPojo {
         throw new MalformedStreamStorageRequestException("Kafka request not matching pattern.");
     }
 
-    public static StreamPartitionPojo buildStreamPartitionPojoFromPulsarRequestPath(
+    public static StreamPartition buildStreamPartitionPojoFromPulsarRequestPath(
             String fullyQualifiedPulsarRequestPath, String container) {
         Matcher matcher = PULSAR_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPulsarRequestPath);
         if (matcher.matches()) {
             // Since Pulsar does not have a stream/scope identifier, it is expected to have
             // a global Pulsar policy for the time being.
-            return new StreamPartitionPojo(container, "pulsar", "pulsar", "0",
+            return new StreamPartition(container, "pulsar", "pulsar", "0",
                     fullyQualifiedPulsarRequestPath);
         }
 
@@ -77,12 +77,12 @@ public class StreamPartitionPojo {
         throw new MalformedStreamStorageRequestException("Pulsar request not matching pattern.");
     }
 
-    public static StreamPartitionPojo buildDefaultStreamPartitionPojoFromRequestPath(String fullyQualifiedRequestPath,
-            String container) {
+    public static StreamPartition buildDefaultStreamPartitionPojoFromRequestPath(String fullyQualifiedRequestPath,
+                                                                                 String container) {
 
         Matcher matcher = DEFAULT_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedRequestPath);
         if (matcher.matches()) {
-            return new StreamPartitionPojo(container, container, matcher.group(1), matcher.group(2), matcher.group(3));
+            return new StreamPartition(container, container, matcher.group(1), matcher.group(2), matcher.group(3));
         }
 
         // The object doesn't match the pattern.

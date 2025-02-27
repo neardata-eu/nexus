@@ -1,7 +1,7 @@
 package io.nexus.streamlets.state.backends;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexus.streamlets.state.StreamletStateBackend;
+import io.nexus.streamlets.utils.SerializationUtils;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,13 +12,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class InMemoryStateBackend implements StreamletStateBackend {
 
-    private final Map<String, String> storage = new ConcurrentHashMap<>();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Map<String, byte[]> storage = new ConcurrentHashMap<>();
 
     @Override
     public <T> void save(String key, T value) {
         try {
-            this.storage.put(key, this.objectMapper.writeValueAsString(value));
+            this.storage.put(key, SerializationUtils.kryoSerialize(value));
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize and save value", e);
         }
@@ -27,8 +26,8 @@ public class InMemoryStateBackend implements StreamletStateBackend {
     @Override
     public <T> T load(String key, Class<T> type) {
         try {
-            String data = this.storage.get(key);
-            return data != null ? this.objectMapper.readValue(data, type) : null;
+            byte[] data = this.storage.get(key);
+            return data != null ? SerializationUtils.kryoDeserialize(data, type) : null;
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize and load value", e);
         }

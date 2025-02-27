@@ -12,18 +12,20 @@ public class StreamletDescriptor {
     private boolean partitionLocality; // If that streamlet should benefit from stream partition locality
     private boolean transformsContent; // If the streamlet changes the contents of data so we always need the reverse transformation
     private boolean dataRouting;
+    private boolean dataSource;
 
     public StreamletDescriptor() {
     }
 
     public StreamletDescriptor(String id, ExecuteOn executeOn, Hardware hardware, boolean partitionLocality,
-                               boolean transformsContent, boolean dataRouting) {
+                               boolean transformsContent, boolean dataRouting, boolean dataSource) {
         this.id = id;
         this.executeOn = executeOn;
         this.hardware = hardware;
         this.partitionLocality = partitionLocality;
         this.transformsContent = transformsContent;
         this.dataRouting = dataRouting;
+        this.dataSource = dataSource;
     }
 
     public String getId() {
@@ -70,8 +72,16 @@ public class StreamletDescriptor {
         return dataRouting;
     }
 
+    public boolean isDataSource() {
+        return dataRouting || dataSource;
+    }
+
     public void setDataRouting(boolean dataRouting) {
         this.dataRouting = dataRouting;
+    }
+
+    public void setDataSource(boolean dataSource) {
+        this.dataSource = dataSource;
     }
 
     @Override
@@ -83,6 +93,7 @@ public class StreamletDescriptor {
                 ", partitionLocality=" + (partitionLocality ? "Yes" : "No") + '\'' +
                 ", transformsContent=" + (transformsContent ? "Yes" : "No") + '\'' +
                 ", dataRouting=" + (dataRouting ? "Yes" : "No") +
+                ", dataSource=" + (dataSource ? "Yes" : "No") +
                 '}';
     }
 }

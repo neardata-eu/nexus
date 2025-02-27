@@ -1,15 +1,46 @@
 package io.nexus.streamlets.utils;
 
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+
+import com.esotericsoftware.kryo.util.DefaultClassResolver;
+import com.esotericsoftware.kryo.util.MapReferenceResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class SerializationUtils {
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static final ThreadLocal<Kryo> kryoThreadLocal = ThreadLocal.withInitial(() -> {
+        Kryo kryo = new Kryo(new DefaultClassResolver(), new MapReferenceResolver());
+        kryo.setRegistrationRequired(false); // Allow dynamic registration
+        return kryo;
+    });
+
+    public static <T> byte[] kryoSerialize(T value) {
+        Kryo kryo = kryoThreadLocal.get();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (Output output = new Output(bos)) {
+            kryo.writeObject(output, value);
+            output.flush();
+            return bos.toByteArray();
+        }
+    }
+
+    public static <T> T kryoDeserialize(byte[] data, Class<T> type) {
+        Kryo kryo = kryoThreadLocal.get();
+        try (Input input = new Input(data)) {
+            return kryo.readObject(input, type);
+        }
+    }
 
     public static <T> String serialize(T value) {
         try {

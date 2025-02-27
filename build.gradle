@@ -106,6 +106,10 @@ dependencies {
     //Needed for Kafka serialization processes
     implementation group: 'org.apache.kafka', name: 'kafka-clients', version: '3.9.0'
 
+    // https://mvnrepository.com/artifact/com.esotericsoftware/kryo
+    implementation group: 'com.esotericsoftware', name: 'kryo', version: '5.6.2'
+    // https://mvnrepository.com/artifact/org.objenesis/objenesis
+    implementation group: 'org.objenesis', name: 'objenesis', version: '3.4'
 }
 
 tasks.named('test') {
