@@ -220,10 +220,11 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             streamPartition = StreamPartition.getStreamPartitionPojo(blob.getMetadata().getName(), policy.getSystem(), containerName);
         } catch (MalformedStreamStorageRequestException | NoPolicySetException e) {
             // Either the request is malformed or there are no policies, so just execute operation against S3 endpoint.
-            logger.warn("Malformed request, forwarding without processing.", e);
+            logger.warn("Malformed request or request without policy, forwarding without processing.");
             return super.putBlob(containerName, blob, putOptions);
         } catch (Exception ex) {
             // Unexpected error, rethrow.
+            logger.error("Unexpected error while getting stream policy.", ex);
             throw new RuntimeException(ex);
         }
         try {

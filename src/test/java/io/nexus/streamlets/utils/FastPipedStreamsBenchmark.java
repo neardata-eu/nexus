@@ -1,66 +1,85 @@
 package io.nexus.streamlets.utils;
 
-import java.io.*;
-import java.util.concurrent.CountDownLatch;
+import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class FastPipedStreamsBenchmark {
 
-    public static void main(String[] args) throws IOException, InterruptedException {
-        final int BUFFER_SIZE = 16 * 1024; // 16 KB buffer
-        final int TOTAL_DATA_SIZE = 1 * 1024 * 1024 * 1024; // 1 GB
-        final byte[] writeBuffer = new byte[BUFFER_SIZE];
+    private static final int DATA_SIZE = 100 * 1024 * 1024; // 100 MB
+    private static final int BUFFER_SIZE = 2 * 1024 * 1024; // 2 MB
+    private static final int CHUNK_SIZE = 64 * 1024; // 64 KB chunks
 
-        FastPipedOutputStream fastOut = new FastPipedOutputStream(BUFFER_SIZE);
-        FastPipedInputStream fastIn = new FastPipedInputStream(fastOut);
+    public static void main(String[] args) throws InterruptedException {
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
 
-        CountDownLatch latch = new CountDownLatch(2);
+        // Warm-up phase to allow JIT optimizations
+        System.out.println("Warming up JVM...");
+        runBenchmark(1, 2);
+        System.gc(); // Reduce GC influence
 
-        // Writer Thread
-        Thread writerThread = new Thread(() -> {
-            try {
-                long startTime = System.nanoTime();
-                int bytesWritten = 0;
-                while (bytesWritten < TOTAL_DATA_SIZE) {
-                    int toWrite = Math.min(writeBuffer.length, TOTAL_DATA_SIZE - bytesWritten);
-                    fastOut.write(writeBuffer, 0, toWrite);
-                    bytesWritten += toWrite;
+        System.out.println("\n=== Benchmarking ===");
+        for (int streams : new int[]{1, 2, 4, 8, 16}) {
+            runBenchmark(streams, availableProcessors);
+        }
+    }
+
+    private static void runBenchmark(int numStreams, int numThreads) throws InterruptedException {
+        ExecutorService executor = Executors.newFixedThreadPool(numStreams * 2); // One writer & one reader per stream
+
+        FastPipedOutputStream[] outputStreams = new FastPipedOutputStream[numStreams];
+        FastPipedInputStream[] inputStreams = new FastPipedInputStream[numStreams];
+
+        for (int i = 0; i < numStreams; i++) {
+            outputStreams[i] = new FastPipedOutputStream(BUFFER_SIZE);
+            inputStreams[i] = new FastPipedInputStream(outputStreams[i]);
+        }
+
+        System.gc(); // Reduce GC effects
+        long startTime = System.nanoTime();
+
+        for (int i = 0; i < numStreams; i++) {
+            final int index = i;
+
+            // Writer thread
+            executor.submit(() -> {
+                try {
+                    byte[] data = new byte[CHUNK_SIZE];
+                    int remaining = DATA_SIZE;
+                    while (remaining > 0) {
+                        int chunkSize = Math.min(remaining, CHUNK_SIZE);
+                        outputStreams[index].write(data, 0, chunkSize);
+                        remaining -= chunkSize;
+                    }
+                    outputStreams[index].close();
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
-                fastOut.close();
-                long endTime = System.nanoTime();
-                double durationSeconds = (endTime - startTime) / 1_000_000_000.0;
-                double mbps = (TOTAL_DATA_SIZE / (1024.0 * 1024.0)) / durationSeconds;
-                System.out.printf("Writer Throughput: %.2f MB/s%n", mbps);
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                latch.countDown();
-            }
-        });
+            });
 
-        // Reader Thread
-        Thread readerThread = new Thread(() -> {
-            try {
-                long startTime = System.nanoTime();
-                byte[] readBuffer = new byte[BUFFER_SIZE];
-                int bytesRead = 0;
-                int n;
-                while ((n = fastIn.read(readBuffer)) != -1) {
-                    bytesRead += n;
+            // Reader thread
+            executor.submit(() -> {
+                try {
+                    byte[] buffer = new byte[CHUNK_SIZE];
+                    while (inputStreams[index].read(buffer) != -1) {
+                        // Simulate processing
+                    }
+                    inputStreams[index].close();
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
-                long endTime = System.nanoTime();
-                double durationSeconds = (endTime - startTime) / 1_000_000_000.0;
-                double mbps = (TOTAL_DATA_SIZE / (1024.0 * 1024.0)) / durationSeconds;
-                System.out.printf("Reader Throughput: %.2f MB/s%n", mbps);
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                latch.countDown();
-            }
-        });
+            });
+        }
 
-        writerThread.start();
-        readerThread.start();
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.HOURS);
 
-        latch.await(); // Wait for both threads to finish
+        long endTime = System.nanoTime();
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(endTime - startTime);
+        double throughput = (DATA_SIZE * numStreams) / (durationMs / 1000.0) / (1024.0 * 1024.0); // MB/s
+
+        System.out.printf("Results: %d streams, %d threads -> Time: %d ms, Throughput: %.2f MB/s%n",
+                numStreams, numThreads, durationMs, throughput);
     }
 }

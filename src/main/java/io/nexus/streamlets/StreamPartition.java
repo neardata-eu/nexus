@@ -6,12 +6,10 @@ import java.util.regex.Pattern;
 
 public class StreamPartition {
 
-    // This regex is for experimental .txt files only
-    public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN = Pattern
-            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.txt)$");
+    // We consider a default pattern for testing purposes so we can exercise Nexus without a en event streaming system.
+    public final static Pattern DEFAULT_PARTITION_OBJECT_PATTERN = Pattern.compile("([^/]+)/([^/]+)/([^/]+)");
 
-    // Kafka's pattern follows the default pattern, up to three directories, with
-    // .log object
+    // Kafka's pattern follows the default pattern, up to three directories, with .log object
     public final static Pattern KAFKA_PARTITION_OBJECT_PATTERN = Pattern
             .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.log)$");
 

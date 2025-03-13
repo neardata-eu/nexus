@@ -89,6 +89,13 @@ public final class S3Proxy {
         HttpConfiguration httpConfiguration = new HttpConfiguration();
         httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
         httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
+        httpConfiguration.setSendDateHeader(false);
+        httpConfiguration.setRequestHeaderSize(65536);  // Allow larger request headers (64 KB)
+        httpConfiguration.setResponseHeaderSize(65536); // Allow larger response headers (64 KB)
+        httpConfiguration.setOutputBufferSize(32768);  // Optimize buffer size for large responses (32 KB)
+        httpConfiguration.setIdleTimeout(30000); // Increase idle timeout to 30s for long-lived connections
+        // Enable persistent connections to reduce connection overhead
+        httpConfiguration.setPersistentConnectionsEnabled(true);
         SecureRequestCustomizer src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
         httpConfiguration.addCustomizer(src);
@@ -99,6 +106,8 @@ public final class S3Proxy {
             connector = new ServerConnector(server, httpConnectionFactory);
             connector.setHost(builder.endpoint.getHost());
             connector.setPort(builder.endpoint.getPort());
+            connector.setIdleTimeout(30000); // 30s timeout for inactive connections
+            connector.setAcceptQueueSize(1024); // Large queue for handling spikes
             server.addConnector(connector);
             listenHTTP = true;
         } else {

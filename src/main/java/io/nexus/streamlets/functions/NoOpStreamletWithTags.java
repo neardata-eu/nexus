@@ -2,33 +2,51 @@ package io.nexus.streamlets.functions;
 
 import io.nexus.streamlets.ByteStreamlet;
 import io.nexus.streamlets.context.StreamletContext;
+import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.utils.StreamletIO;
+import org.slf4j.Logger;
 
 import java.io.InputStream;
 import java.io.OutputStream;
-
-import org.slf4j.Logger;
+import java.util.Random;
 
 /**
  * 
  * A basic Streamlet that simply reads the provided data
  * 
  */
-public class NoOpStreamlet extends ByteStreamlet {
+public class NoOpStreamletWithTags extends ByteStreamlet {
 
-    private final String name = "NOOP";
+    private final String name = "NOOP-TAGS";
+    private final int randomNumber;
 
-    public NoOpStreamlet() {}
+    public NoOpStreamletWithTags() {
+        this.randomNumber = new Random().nextInt();
+    }
 
     @Override
     public void processPutBytes(StreamletIO event, StreamletContext context) {
         Logger logger = context.getLogger();
+        Policy policy = context.getPolicy();
+
+        // Example of adding metadata
+        context.putUserMetadata("hello", String.valueOf(randomNumber));
+        logger.info("Storing metadata tag: Key: " + "hello" + randomNumber + ",Value: " + randomNumber);
+
+        logger.info("PUT - Executing Streamlet: " + name + ", as part of pipeline: {}", policy.getPipeline());
         doProcess(event.input(), event.output(), logger);
     }
 
     @Override
     public void processGetBytes(StreamletIO event, StreamletContext context) {
         Logger logger = context.getLogger();
+        Policy policy = context.getPolicy();
+
+        // Example of getting metadata
+        String tagValue = context.getUserMetadata("hello");
+        logger.info("Getting metadata tag: Key: hello" + ",Value: " + tagValue);
+
+        logger.info("GET - Executing Streamlet: " + name + ", as part of pipeline: {}", policy.getPipeline());
         doProcess(event.input(), event.output(), logger);
     }
 
