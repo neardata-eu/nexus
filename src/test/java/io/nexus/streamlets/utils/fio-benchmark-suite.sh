@@ -45,11 +45,12 @@ direct=1
 http_verbose=${HTTP_VERBOSE}
 unique_filename=1
 group_reporting
-runtime=20s
+runtime=60s
 time_based=1
+continue_on_error=all
 
 [create]
-rw=write
+rw=rw
 bs=${IO_SIZE}M
 size=${IO_SIZE}M
 io_size=${IO_SIZE}M

@@ -5,7 +5,12 @@ import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
 
-import io.nexus.streamlets.metadata.*;
+import io.nexus.streamlets.metadata.Hardware;
+import io.nexus.streamlets.metadata.MetadataService;
+import io.nexus.streamlets.metadata.Policy;
+import io.nexus.streamlets.metadata.Region;
+import io.nexus.streamlets.metadata.S3StorageConfig;
+import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
 import io.nexus.streamlets.utils.CachedS3Client;
 import io.nexus.streamlets.utils.FastPipedInputStream;
 import io.nexus.streamlets.utils.FastPipedOutputStream;
@@ -14,8 +19,6 @@ import io.nexus.streamlets.utils.ObjectTagsUtils;
 import io.nexus.streamlets.utils.RequestManager;
 import io.nexus.streamlets.utils.StreamNameUtils;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
-import io.pravega.common.concurrent.Futures;
-import io.pravega.common.io.ByteBufferOutputStream;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -209,7 +212,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         long startTime = System.nanoTime();
         if (StreamNameUtils.getSystemFromChunk(blob.getMetadata().getName()) == null) {
             logger.info("Skipping PUT interception for non-log/ledger blob: {}", blob.getMetadata().getName());
-            return super.putBlob(containerName, blob, putOptions);
+            return (putOptions == null) ? super.putBlob(containerName, blob) : super.putBlob(containerName, blob, putOptions);
         }
         logger.info("PUT request for {} / {}.", containerName, blob.getMetadata().getName());
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
@@ -221,7 +224,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         } catch (MalformedStreamStorageRequestException | NoPolicySetException e) {
             // Either the request is malformed or there are no policies, so just execute operation against S3 endpoint.
             logger.warn("Malformed request or request without policy, forwarding without processing.");
-            return super.putBlob(containerName, blob, putOptions);
+            return (putOptions == null) ? super.putBlob(containerName, blob) : super.putBlob(containerName, blob, putOptions);
         } catch (Exception ex) {
             // Unexpected error, rethrow.
             logger.error("Unexpected error while getting stream policy.", ex);
@@ -274,8 +277,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                     eTag = (putOptions == null) ? super.putBlob(containerName, newBlob) :
                             super.putBlob(containerName, newBlob, putOptions);
                     // If there is user metadata, store it as tags in the object after the object is already stored.
-                    pipelineFuture.thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
-                            blob.getMetadata().getName(), streamletContext)).join();
+                    pipelineFuture.join();
+                    this.requestManager.updateMetadataAsync(containerName, blob.getMetadata().getName(), streamletContext);
                 }
                 // Record metrics.
                 recordPutMetrics(startTime, contentLength);
@@ -314,10 +317,15 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         } catch (MalformedStreamStorageRequestException mssre) {
             logger.warn("Malformed GET request {}, executing against S3 storage.", blobName);
             // If the request is malformed execute operation against S3 endpoint.
-            return super.getBlob(containerName, blobName, getOptions);
+            return (getOptions == null) ? super.getBlob(containerName, blobName) : super.getBlob(containerName, blobName, getOptions);
         } catch (NoPolicySetException npse) {
             // No policy in metadata, but we need to check for transformer Streamlets in this object.
-            Blob headersBlob = super.getBlob(containerName, blobName, getOptions);
+            Blob headersBlob = (getOptions == null) ? super.getBlob(containerName, blobName) : super.getBlob(containerName, blobName, getOptions);
+            if (headersBlob == null) {
+                // This may happen in some rare concurrency situations. Report and return.
+                logger.error("Null blob in GET request {} / {}, just returning", containerName, blobName);
+                return headersBlob; 
+            }
             List<String> transformerStreamlets = ObjectTagsUtils.getTransformerStreamletsFromRequest(
                     headersBlob.getAllHeaders(), currentRegion);
             if (!transformerStreamlets.isEmpty()) {
@@ -585,7 +593,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             return doProcess(policy, streamPartition, streamletInput, isPut, streamletResult, streamletContext);
         }
         logger.info("Trying to process but no Streamlets to execute in {} request for {}.", isPut ? "PUT" : "GET", streamPartition);
-        return CompletableFuture.completedFuture(null);
+        return CompletableFuture.supplyAsync(() -> directIOTransfer(streamletInput, streamletResult));
     }
 
     private CompletableFuture<Long> doProcess(Policy policy, StreamPartition streamPartition, InputStream streamletInput,
@@ -776,6 +784,17 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                 .contentLength(contentLength)
                 .contentType(blob.getPayload().getContentMetadata().getContentType())
                 .build();
+    }
+
+    private static long directIOTransfer(InputStream streamletInput, OutputStream streamletResult) {
+        try {
+            long transferredBytes =  streamletInput.transferTo(streamletResult);
+            streamletInput.close();
+            streamletResult.close();
+            return transferredBytes;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static void recordPutMetrics(long startTime, long contentLength) {

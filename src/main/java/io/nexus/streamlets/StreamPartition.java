@@ -80,7 +80,7 @@ public class StreamPartition {
 
         Matcher matcher = DEFAULT_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedRequestPath);
         if (matcher.matches()) {
-            return new StreamPartition(container, container, matcher.group(1), matcher.group(2), matcher.group(3));
+            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(3));
         }
 
         // The object doesn't match the pattern.

@@ -77,6 +77,11 @@ public class RequestManager implements Closeable {
         long startTime = System.nanoTime();
         Blob proxyBlob = (getOptions == null) ? this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName) :
                 this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName, getOptions);
+        if (proxyBlob == null) {
+            //FIXME: In some concurrency situations proxyBlob may be null, need to better handle this case.
+            logger.error("Null blob from blobStore, just returning.");
+            return CompletableFuture.completedFuture(null);
+        }
         // FIll the context with metadata synchronously to make it available right away to streamlets.
         context.populateUserMetadata(proxyBlob.getMetadata().getUserMetadata());
         // The actual data transfer occurs asynchronously.
@@ -230,7 +235,7 @@ public class RequestManager implements Closeable {
 
                 // Write the payload
                 try (OutputStream outputStream = connection.getOutputStream()) {
-                    byte[] buffer = new byte[8192];
+                    byte[] buffer = new byte[64 * 1024];
                     int bytesRead;
                     long totalBytesForwarded = 0;
                     while ((bytesRead = processedContent.read(buffer)) != -1) {
