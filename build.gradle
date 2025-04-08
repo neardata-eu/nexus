@@ -5,35 +5,40 @@ plugins {
     id 'com.gradleup.shadow' version '8.3.4'
 }
 
+//This variable defines the build target class
+//Normal build process will build the main service: gradle build
+//Including the flag will build the AdminCLI: gradle build -Padmincli
+def buildCLI = project.hasProperty('admincli')
+
 application {
-    mainClass = 'io.nexus.Main'
+    if (buildCLI == false) {
+        mainClass = 'io.nexus.Main'
+    } else {
+        mainClass = 'io.nexus.admincli.EntryPoint'
+    }
 }
 
 shadowJar {
-    archiveFileName = 'nexus-java.jar'
-    archiveClassifier.set('all') 
-    manifest {
-        attributes(
-            'Main-Class': 'io.nexus.Main' 
-        )
-    }
-    //Important - Separate JClouds provider/api dependencies when making a fat JAR
-    //so that several ones can be implemented together (S3, Filesystem)
-    transform(com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer) {
-        resource = 'META-INF/services/org.jclouds.apis.ApiMetadata'
-    }
-    transform(com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer) {
-        resource = 'META-INF/services/org.jclouds.providers.ProviderMetadata'
-    }
-    transform(com.github.jengelman.gradle.plugins.shadow.transformers.ManifestResourceTransformer) {
-        mainClass = 'io.nexus.Main' 
+    if (buildCLI == false) {
+        println "Building Main Service..."
+        archiveFileName = 'nexus-java.jar'
+        //Important - Separate JClouds provider/api dependencies when making a fat JAR
+        //so that several ones can be implemented together (S3, Filesystem)
+        transform(com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer) {
+            resource = 'META-INF/services/org.jclouds.apis.ApiMetadata'
+        }
+        transform(com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer) {
+            resource = 'META-INF/services/org.jclouds.providers.ProviderMetadata'
+        }
+    } else {
+        println "Building Admin CLI..."
+        archiveFileName = 'nexus-admin-cli.jar'
     }
 }
 
 group = 'io.nexus'
 version = '1.0.0'
 sourceCompatibility = '21'
-
 
 repositories {
     mavenCentral()
@@ -114,6 +119,10 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.named('jar') {
+    enabled = false
 }
 
 build {

@@ -2,13 +2,19 @@ package io.nexus.admincli;
 
 import java.util.Scanner;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import redis.clients.jedis.Jedis;
 
+import io.nexus.configuration.PropertiesLoader;
+import io.nexus.configuration.RedisConfig;
+
 public class EntryPoint {
-    private static final Jedis redis = new Jedis("localhost", 6379);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
     private static boolean running = true;
 
     private static PolicyMetadataManager policyCLI;
@@ -17,7 +23,13 @@ public class EntryPoint {
     private static StreamletCodeManager streamletCodeManagerCLI;
     private static S3StorageConfigManager s3StorageConfigManagerCLI;
 
+    private static final PropertiesLoader config = new PropertiesLoader();
+
     public static void main(String[] args) {
+        final RedisConfig REDIS_CONFIG = new RedisConfig(config);
+        final Jedis redis = new Jedis(REDIS_CONFIG.getHost(), REDIS_CONFIG.getPort());
+        System.out.println("CLI tool writing to: " + REDIS_CONFIG.getHost() + ":" + REDIS_CONFIG.getPort());
+
         Scanner scanner = new Scanner(System.in);
         policyCLI = new PolicyMetadataManager(scanner, redis, objectMapper);
         streamletDescriptorCLI = new StreamletDescriptorManager(scanner, redis, objectMapper);
