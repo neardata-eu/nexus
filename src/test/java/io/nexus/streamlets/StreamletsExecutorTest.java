@@ -10,6 +10,7 @@ import io.nexus.streamlets.metadata.StreamletDescriptor;
 import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
 import io.nexus.streamlets.metadata.StreamletDescriptor.ExecuteOn;
 
+import io.nexus.streamlets.state.StreamletStateManager;
 import io.pravega.common.io.ByteBufferOutputStream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,13 +52,15 @@ public class StreamletsExecutorTest {
     private InputStream inputStream;
     private OutputStream outputStream;
     private RequestContext mockRequestContext;
+    private StreamletStateManager stateManager;
 
     @BeforeEach
     void setUp() {
         // Mocking the dependencies' objects
         metadataService = Mockito.mock(MetadataService.class);
         nexusConfig = Mockito.mock(NexusConfig.class);
-        streamletsExecutor = new StreamletsExecutor(metadataService);
+        stateManager = Mockito.mock(StreamletStateManager.class);
+        streamletsExecutor = new StreamletsExecutor(metadataService, stateManager);
         mockPolicy = Mockito.mock(Policy.class);
         streamPartitionPojo = Mockito.mock(StreamPartition.class);
         mockRequestContext = Mockito.mock(RequestContext.class);

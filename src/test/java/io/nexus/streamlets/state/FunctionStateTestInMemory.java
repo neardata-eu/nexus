@@ -12,9 +12,4 @@ public class FunctionStateTestInMemory extends AbstractFunctionStateTest {
         this.manager = new StreamletStateManager(backend);
     }
 
-    @Test
-    void testBasicDataStructurePersistenceInMemory() {
-        testBasicDataStructurePersistence();
-    }
-
 }

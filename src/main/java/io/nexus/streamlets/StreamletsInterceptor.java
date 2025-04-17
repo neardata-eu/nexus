@@ -2,6 +2,7 @@ package io.nexus.streamlets;
 
 import io.nexus.shared.metrics.GaugeMetric;
 import io.nexus.shared.metrics.TimerMetric;
+import io.nexus.streamlets.cluster.ClusterRing;
 import io.nexus.streamlets.context.ContextManager;
 import io.nexus.streamlets.context.RequestContext;
 
@@ -11,6 +12,7 @@ import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.metadata.Region;
 import io.nexus.streamlets.metadata.S3StorageConfig;
 import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
+import io.nexus.streamlets.state.StreamletStateManager;
 import io.nexus.streamlets.utils.CachedS3Client;
 import io.nexus.streamlets.utils.FastPipedInputStream;
 import io.nexus.streamlets.utils.FastPipedOutputStream;
@@ -68,6 +70,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     private final Logger logger = LoggerFactory.getLogger(StreamletsInterceptor.class);
     private final StreamletsExecutor streamletsExecutor;
     private final MetadataService metadataService;
+    private final ClusterRing clusterRing;
     private final ConcurrentHashMap<String, MultiPartUploadState> multipartUploads;
     private final ContextManager contextManager;
     private final RequestManager requestManager;
@@ -80,15 +83,17 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         NO_INTER_SWARMLET_ROUTING
     }
 
-    public StreamletsInterceptor(BlobStore blobStore, MetadataService metadataService) {
+    public StreamletsInterceptor(BlobStore blobStore, MetadataService metadataService, StreamletStateManager stateManager,
+                                 ClusterRing clusterRing) {
         super(blobStore);
         this.metadataService = metadataService;
-        this.streamletsExecutor = new StreamletsExecutor(metadataService);
+        this.streamletsExecutor = new StreamletsExecutor(metadataService, stateManager);
         this.multipartUploads = new ConcurrentHashMap<>();
         this.contextManager = ContextManager.getInstance();
         this.cachedS3Client = new CachedS3Client();
         this.dataTransferExecutor = ExecutorServiceHelpers.newScheduledThreadPool(40, "data-transfer-threadpool");
-        this.requestManager = new RequestManager(this, dataTransferExecutor);
+        this.requestManager = new RequestManager(this, this.dataTransferExecutor);
+        this.clusterRing = clusterRing;
     }
 
     @Override
@@ -250,17 +255,17 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             // request. We may need to forward it to another Swarmlet within the same Region (Intra-Swarmlet Routing) due to
             // lack of hardware. Or we may need to just forward the request to the next Region (e.g., EDGE, CLOUD), if any.
             // In routing is needed but no suitable Swarmlet is in metadata, a NoSuitableSwarmletInRegionException will be
-            // thrown. If nextSwarmletEndpoint is null, it means that there is no further routing needed, so we can store
+            // thrown. If nextRoutingEndpoint is null, it means that there is no further routing needed, so we can store
             // the data in the final destination (e.g., S3 bucket).
-            String nextSwarmletEndpoint = nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+            String nextRoutingEndpoint = getNextRoutingEndpoint(policy, currentRegion, availableHardware, streamPartition);
             // We consider that the interception time up to this point, next phase is mainly transfer and processing.
             StreamletsMetrics.PUT_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
-            if (nextSwarmletEndpoint != null) {
+            if (nextRoutingEndpoint != null) {
                 // 4.1 Route the PUT request to the next Nexus Swarmlet and update the metadata in storage.
-                this.requestManager.forwardPutRequest(nextSwarmletEndpoint, containerName, blob, streamletOutputInputStream)
+                this.requestManager.forwardPutRequest(nextRoutingEndpoint, containerName, blob, streamletOutputInputStream)
                         .thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
                                 blob.getMetadata().getName(), streamletContext)).join();
-                throw new ForwardedRequestException("Request forwarded to " + nextSwarmletEndpoint);
+                throw new ForwardedRequestException("Request forwarded to " + nextRoutingEndpoint);
             } else {
                 // 4.2 Store the PUT contents in S3 and reply to the client.
                 startTime = System.nanoTime();
@@ -346,7 +351,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             // 2. For GETs, we need to check if we are the final Region, because the processing goes backwards. In other
             // words, we get what is the next Swarmlet in the pipeline. For mock policies we do not apply routing.
             String nextSwarmletEndpoint = policy.isMock() ? null :
-                    nextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+                    getNextRoutingEndpoint(policy, currentRegion, availableHardware, streamPartition);
             // 3. If we are the right Swarmlet in the final Region, we can proceed with the GET to the actual storage. If
             // not, we need to forward the request to the next Swarmlet before doing or own processing.
             InputStream streamletInput;
@@ -588,11 +593,12 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     private CompletableFuture<Long> tryProcess(Policy policy, Region currentRegion, Hardware availableHardware,
                                                StreamPartition streamPartition, InputStream streamletInput, boolean isPut,
                                                OutputStream streamletResult, RequestContext streamletContext) {
-        if (policy.anyStreamletToRun(currentRegion, availableHardware, isPut)) {
+        if (policy.anyStreamletToRun(currentRegion, availableHardware, isPut)
+                && !needsIntraSwarmletRouting(policy, currentRegion, streamPartition)) {
             // We are in the right Swarmlet, process the request.
             return doProcess(policy, streamPartition, streamletInput, isPut, streamletResult, streamletContext);
         }
-        logger.info("Trying to process but no Streamlets to execute in {} request for {}.", isPut ? "PUT" : "GET", streamPartition);
+        logger.info("Trying to process but no Streamlets  to execute in {} request for {}.", isPut ? "PUT" : "GET", streamPartition);
         return CompletableFuture.supplyAsync(() -> directIOTransfer(streamletInput, streamletResult));
     }
 
@@ -629,6 +635,29 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         }
     }
 
+    private String getNextRoutingEndpoint(Policy policy, Region currentRegion, Hardware availableHardware, StreamPartition streamPartition) {
+        // No need for intra-swarmlet routing, just compute the next inter-swarmlet/inter-region endpoint.
+        if (!needsIntraSwarmletRouting(policy, currentRegion, streamPartition)) {
+            return getNextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+        }
+
+        // Ok, we have a partitioned stateful streamlet pipeline in this region. Let's see if we are at the right
+        // Swarmlet to execute the streamlets and then check for the right note to do so.
+        InterSwarmletRoutingType interSwarmletRoutingType = checkSwarmletRoutingNeeded(policy, currentRegion, availableHardware);
+        if (interSwarmletRoutingType.equals(InterSwarmletRoutingType.INTER_REGION)
+                || interSwarmletRoutingType.equals(InterSwarmletRoutingType.NO_INTER_SWARMLET_ROUTING)) {
+            // We are at the right Swarmlet to execute this pipeline. Let's check if this is the right worker instance.
+            String nodeForKey = this.clusterRing.getNodeForKey(streamPartition.getScopedPartitionUri());
+            if (!nodeForKey.equals(this.clusterRing.getThisNodeHostId())) {
+                // In this swarmlet, this worker node is not the owner of this stream partition, so re-routing.
+                return nodeForKey + "/";
+            }
+        }
+        // If we are still not at the right Swarmlet, do inter-swarmlet. If we are at the right Swarmlet and also the right
+        // worker instance, just no further routing is needed.
+        return getNextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+    }
+
     /**
      * Determines the next Swarmlet routing endpoint based on the given policy, current region, and available hardware.
      * This method decides whether to forward the request to a Swarmlet in a different region (inter-region routing)
@@ -640,7 +669,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
      * @return The next Swarmlet endpoint URL for routing, ensuring it ends with a trailing slash.
      * @throws NoSuitableSwarmletInRegionException If no Swarmlet meets the required hardware constraints in the selected region.
      */
-    private String nextSwarmletRoutingEndpoint(Policy policy, Region currentRegion, Hardware availableHardware) {
+    private String getNextSwarmletRoutingEndpoint(Policy policy, Region currentRegion, Hardware availableHardware) {
         String nextSwarmletEndpoint = null;
         Optional<Hardware> requiredHardware;
         switch (checkSwarmletRoutingNeeded(policy, currentRegion, availableHardware)) {
@@ -702,6 +731,21 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         boolean swarmletCanExecuteStreamlets = policy.canSwarmletExecuteStreamlets(currentRegion, availableHardware);
         return noStreamletsInRegion || swarmletCanExecuteStreamlets ?
                 InterSwarmletRoutingType.INTER_REGION : InterSwarmletRoutingType.INTRA_REGION;
+    }
+
+    /**
+     * Intra-swarmlet routing is only needed when we have a stateful streamlet in the current region that uses the
+     * partitioned approach for storing its metadata. In this case, we need to check that the current host is the
+     * right one for storing the metadata of that partition, or re-route otherwise.
+     *
+     * @param policy
+     * @param currentRegion
+     * @param streamPartition
+     * @return
+     */
+    private boolean needsIntraSwarmletRouting(Policy policy, Region currentRegion, StreamPartition streamPartition) {
+        return policy.containsStatefulPartitionedStreamlets(currentRegion)
+                && !this.clusterRing.getNodeForKey(streamPartition.getScopedPartitionUri()).equals(this.clusterRing.getThisNodeHostId());
     }
 
     private Policy checkRequestAndRetrievePolicy(String containerName, Blob blob) {

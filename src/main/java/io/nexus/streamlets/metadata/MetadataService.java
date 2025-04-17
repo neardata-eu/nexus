@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-public class MetadataService {
+public class MetadataService implements MetadataCallback {
     private static final Logger logger = LoggerFactory.getLogger(MetadataService.class);
 
     public static final String METADATA_POLICY_PREFIX = "policy:";
@@ -23,10 +23,12 @@ public class MetadataService {
     public static final String METADATA_STREAMLET_CODE_PREFIX = "streamletcode:";
     public static final String METADATA_SWARMLET_PREFIX = "swarmletdescriptor:";
     public static final String METADATA_S3_PREFIX = "s3config:";
+    public static final String METADATA_MEMBERSHIP_PREFIX = "clusternodes:";
 
     private final NexusConfig nexusConfig;
     private final JedisPool jedisPool;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MetadataChangeNotifier metadataChangeNotifier;
     final Map<String, Policy> policyCache = new ConcurrentHashMap<>();
     final Map<String, StreamletDescriptor> streamletCache = new ConcurrentHashMap<>();
     final Map<String, SwarmletDescriptor> swarmletCache = new ConcurrentHashMap<>();
@@ -39,12 +41,12 @@ public class MetadataService {
      * @param nexusConfig the Nexus configuration
      * @param jedisPool   the Jedis connection pool
      */
-    public MetadataService(NexusConfig nexusConfig, JedisPool jedisPool) {
+    public MetadataService(NexusConfig nexusConfig, JedisPool jedisPool, MetadataChangeNotifier metadataChangeNotifier) {
         logger.info("Instantiating MetadataService");
         this.nexusConfig = nexusConfig;
         this.jedisPool = jedisPool;
+        this.metadataChangeNotifier = metadataChangeNotifier;
         loadInitialData();
-        initializeSubscriber();
     }
 
     /**
@@ -127,49 +129,29 @@ public class MetadataService {
     }
 
     /**
-     * Initializes the Redis subscriber to listen for updates and update local caches.
+     * Subscriber callback that reacts to metadata changes and updates local caches.
      */
-    private void initializeSubscriber() {
-        new Thread(() -> {
-            while (true) {
-                try (Jedis jedis = jedisPool.getResource()) {
-                    jedis.psubscribe(new JedisPubSub() {
-                        @Override
-                        public void onPMessage(String pattern, String channel, String message) {
-                            logger.info("Received Redis event: {} on channel: {}", message, channel);
-
-                            // Extract the actual key from "__keyspace@0__:policy:policy-6"
-                            String key = channel.replace("__keyspace@0__:*", "");
-
-                            // Only handle "set" events
-                            if ("set".equals(message)) {
-                                try (Jedis innerJedis = jedisPool.getResource()) {
-                                    String json = innerJedis.get(key);
-                                    if (key.startsWith(METADATA_POLICY_PREFIX)) {
-                                        policyCache.put(key, objectMapper.readValue(json, Policy.class));
-                                    } else if (key.startsWith(METADATA_STREAMLET_PREFIX)) {
-                                        streamletCache.put(key, objectMapper.readValue(json, StreamletDescriptor.class));
-                                    } else if (key.startsWith(METADATA_SWARMLET_PREFIX)) {
-                                        swarmletCache.put(key, objectMapper.readValue(json, SwarmletDescriptor.class));
-                                    } else if (key.startsWith(METADATA_STREAMLET_CODE_PREFIX)) {
-                                        codeCache.put(key, json);
-                                    } else if (key.startsWith(METADATA_S3_PREFIX)) {
-                                        s3ConfigCache.put(key, objectMapper.readValue(json, S3StorageConfig.class));
-                                    }
-                                } catch (Exception e) {
-                                    logger.error("Error updating cache for key: " + key, e);
-                                }
-                            }
-                        }
-                    }, "__keyspace@0__:*"); // Subscribe to all keyspace events
-                } catch (Exception e) {
-                    logger.error("Redis subscription error, retrying in 5 seconds...", e);
-                    try {
-                        Thread.sleep(5000);
-                    } catch (InterruptedException ignored) {}
+    @Override
+    public void onMessage(String key, String message) {
+        // Only handle "set" events
+        if ("set".equals(message)) {
+            try (Jedis innerJedis = jedisPool.getResource()) {
+                String json = innerJedis.get(key);
+                if (key.startsWith(METADATA_POLICY_PREFIX)) {
+                    policyCache.put(key, objectMapper.readValue(json, Policy.class));
+                } else if (key.startsWith(METADATA_STREAMLET_PREFIX)) {
+                    streamletCache.put(key, objectMapper.readValue(json, StreamletDescriptor.class));
+                } else if (key.startsWith(METADATA_SWARMLET_PREFIX)) {
+                    swarmletCache.put(key, objectMapper.readValue(json, SwarmletDescriptor.class));
+                } else if (key.startsWith(METADATA_STREAMLET_CODE_PREFIX)) {
+                    codeCache.put(key, json);
+                } else if (key.startsWith(METADATA_S3_PREFIX)) {
+                    s3ConfigCache.put(key, objectMapper.readValue(json, S3StorageConfig.class));
                 }
+            } catch (Exception e) {
+                logger.error("Error updating cache for key: " + key, e);
             }
-        }).start();
+        }
     }
 
     // Read Policy

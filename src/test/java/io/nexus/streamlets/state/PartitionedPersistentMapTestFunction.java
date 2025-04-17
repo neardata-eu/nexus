@@ -3,9 +3,9 @@ package io.nexus.streamlets.state;
 import java.util.HashMap;
 import java.util.function.BiFunction;
 
-public class PersistentMapTestFunction implements BiFunction<String, String, String> {
+public class PartitionedPersistentMapTestFunction implements BiFunction<String, String, String> {
 
-    @Persistent(name = "persistentMap", type = StatePersistenceType.SHARED)
+    @Persistent(type = StatePersistenceType.PARTITIONED)
     private final HashMap<String, String> persistentMap = new HashMap<>();
 
     @Override

@@ -193,11 +193,17 @@ public class PolicyMetadataManager {
 
     private List<String> inputList(Scanner scanner, String fieldName) {
         System.out.print("Enter " + fieldName + " values (comma-separated): ");
-        String input = scanner.nextLine();
-        String[] values = input.split(",");
+        String input = scanner.nextLine().trim();
+
         List<String> list = new ArrayList<>();
-        for (String value : values) {
-            list.add(value.trim());
+        if (!input.isEmpty()) {
+            String[] values = input.split(",");
+            for (String value : values) {
+                String trimmed = value.trim();
+                if (!trimmed.isEmpty()) {
+                    list.add(trimmed);
+                }
+            }
         }
         return list;
     }

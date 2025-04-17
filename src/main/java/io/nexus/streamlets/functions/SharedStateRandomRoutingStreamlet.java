@@ -22,14 +22,14 @@ import java.util.Random;
  * Streamlet that stores data in different storages depending on some random decision.
  * 
  */
-public class SimpleRoutingStreamlet extends ByteStreamlet implements DataSourceStreamlet {
+public class SharedStateRandomRoutingStreamlet extends ByteStreamlet implements DataSourceStreamlet {
 
     private final String name;
-    @Persistent(name = "dataRoutingMap", type = StatePersistenceType.SHARED)
+    @Persistent(type = StatePersistenceType.SHARED)
     private final HashMap<String, S3StorageConfig> persistentMap = new HashMap<>();
 
-    public SimpleRoutingStreamlet() {
-        this.name = "SIMPLE_ROUTING";
+    public SharedStateRandomRoutingStreamlet() {
+        this.name = "SHARED_ROUTING";
     }
 
     @Override

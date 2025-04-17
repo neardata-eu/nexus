@@ -91,6 +91,10 @@ public class StreamPartition {
         return this.scope + File.separator + this.stream + File.separator + this.partition;
     }
 
+    public String getScopedStreamName() {
+        return this.scope + File.separator + this.stream;
+    }
+
     public String getScopedObjectName() {
         return this.getScopedPartitionUri() + File.separator + this.object;
     }

@@ -14,6 +14,5 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
 public @interface Persistent {
-    String name(); // The name of the persistent data structure
     StatePersistenceType type(); // Whether the variable is supposed to be shared across multiple functions or not
 }

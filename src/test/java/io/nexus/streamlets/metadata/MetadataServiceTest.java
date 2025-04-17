@@ -19,16 +19,18 @@ public class MetadataServiceTest {
     private JedisPool jedisPool;
     private Jedis jedis;
     private MetadataService metadataService;
+    private MetadataChangeNotifier metadataChangeNotifier;
 
     @BeforeEach
     public void setUp() {
         nexusConfig = mock(NexusConfig.class);
         jedisPool = mock(JedisPool.class);
         jedis = mock(Jedis.class);
+        metadataChangeNotifier = mock(MetadataChangeNotifier.class);
 
         when(jedisPool.getResource()).thenReturn(jedis);
 
-        metadataService = new MetadataService(nexusConfig, jedisPool);
+        metadataService = new MetadataService(nexusConfig, jedisPool, metadataChangeNotifier);
     }
 
     @Test

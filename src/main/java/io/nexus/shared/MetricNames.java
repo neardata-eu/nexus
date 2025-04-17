@@ -144,4 +144,13 @@ public class MetricNames {
                 PREFIX + "streamlet.function.instantiation_duration",
                 "Duration of compiling and instantiating a Streamlet");
 
+        // Stateful streamlets metadata access
+
+        public static final MetricInfo STREAMLET_STATE_WRITE_OPERATIONS = new MetricInfo(
+                PREFIX + "streamlet.function.WRITE_function_state_operations",
+                "Counter for write operations of a streamlet state");
+
+        public static final MetricInfo STREAMLET_STATE_READ_OPERATIONS = new MetricInfo(
+                PREFIX + "streamlet.function.READ_function_state_operations",
+                "Counter for read operations of a streamlet state");
 }

@@ -10,6 +10,10 @@ import io.nexus.configuration.RedisConfig;
 import io.nexus.configuration.S3ProxyConfig;
 import io.nexus.configuration.ServerConfig;
 
+import io.nexus.streamlets.cluster.ClusterRing;
+import io.nexus.streamlets.metadata.MetadataChangeNotifier;
+import io.nexus.streamlets.state.StreamletStateBackendFactory;
+import io.nexus.streamlets.state.StreamletStateManager;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.slf4j.Logger;
@@ -32,7 +36,6 @@ public class Main {
     }
 
     public static void main(String[] args) throws Exception {
-
         // Initialize main configurations
         final JCloudsConfig JCLOUDS_CONFIG = new JCloudsConfig(config);
         final S3ProxyConfig S3PROXY_CONFIG = new S3ProxyConfig(config);
@@ -55,11 +58,19 @@ public class Main {
         // Initializing a Redis pool for metadata multithreaded interaction support
         JedisPoolConfig jedisConfig = new JedisPoolConfig();
         final JedisPool jedisPool = new JedisPool(jedisConfig, REDIS_CONFIG.getHost(), REDIS_CONFIG.getPort());
-        MetadataService metadataService = new MetadataService(NEXUS_CONFIG, jedisPool);
+        MetadataChangeNotifier metadataChangeNotifier = new MetadataChangeNotifier(jedisPool);
+        metadataChangeNotifier.initializeSubscriber();
+        MetadataService metadataService = new MetadataService(NEXUS_CONFIG, jedisPool, metadataChangeNotifier);
+        metadataChangeNotifier.registerCallback(metadataService);
         logger.info("Initialized metadata service");
 
         // Nexus interceptor middleware
-        StreamletsInterceptor streamletsMiddleware = new StreamletsInterceptor(context.getBlobStore(), metadataService);
+        ClusterRing clusterRing = new ClusterRing(jedisPool, S3PROXY_CONFIG.getEndpoint(),
+                NEXUS_CONFIG.getKeepaliveInterval(), NEXUS_CONFIG.getTimeout(), NEXUS_CONFIG.getClusterVirtualNodes());
+        clusterRing.start();
+        metadataChangeNotifier.registerCallback(clusterRing);
+        StreamletStateManager stateManager = new StreamletStateManager(StreamletStateBackendFactory.createBackend(NEXUS_CONFIG));
+        StreamletsInterceptor streamletsMiddleware = new StreamletsInterceptor(context.getBlobStore(), metadataService, stateManager, clusterRing);
         logger.info("Initialized interceptor middleware");
 
         // Initialize S3Proxy with the streaming service's endpoint
@@ -78,6 +89,7 @@ public class Main {
                 logger.error("Error during main thread execution.", e);
                 // Shutdown the redis pool gracefully
                 jedisPool.close();
+                metadataChangeNotifier.close();
                 shutdownMainApplication();
             }
         }

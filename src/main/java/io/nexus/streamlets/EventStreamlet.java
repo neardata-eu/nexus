@@ -2,6 +2,9 @@ package io.nexus.streamlets;
 
 import io.nexus.streamlets.context.StreamletContext;
 import io.nexus.streamlets.utils.StreamletIO;
+import org.apache.kafka.common.errors.CorruptRecordException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -9,6 +12,9 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.List;
 import java.util.function.BiConsumer;
 
 import static io.nexus.streamlets.StreamletsMetrics.GET_STREAMLET_EXECUTION_LATENCY_TIMER;
@@ -25,6 +31,7 @@ import static io.nexus.streamlets.StreamletsMetrics.PUT_STREAMLET_EXECUTION_LATE
  * @param <T> The type of record being processed.
  */
 public abstract class EventStreamlet<T> implements Streamlet {
+    private final Logger logger = LoggerFactory.getLogger(EventStreamlet.class);
     private final static int READ_SIZE = 512 * 1024;
     private final Deserializer<T> deserializer;
     private final ByteArrayOutputStream leftoverBuffer = new ByteArrayOutputStream();
@@ -65,39 +72,34 @@ public abstract class EventStreamlet<T> implements Streamlet {
         GET_STREAMLET_EXECUTION_LATENCY_TIMER.record(System.nanoTime() - startTime);
     }
 
-    private void handleRequest(StreamletIO dataStreams, StreamletContext context, BiConsumer<T, StreamletContext> function) {
+    private void handleRequest(StreamletIO streams, StreamletContext context, BiConsumer<T, StreamletContext> handler) {
         byte[] buffer = new byte[READ_SIZE];
         int bytesRead;
-
-        try (InputStream input = dataStreams.input();
-             OutputStream output = dataStreams.output()) {
+        try (InputStream input = streams.input();
+             OutputStream output = streams.output()) {
+            ByteArrayOutputStream leftoverBuffer = new ByteArrayOutputStream();
             while ((bytesRead = input.read(buffer)) != -1) {
-                // Write raw bytes immediately to the output
                 output.write(buffer, 0, bytesRead);
-                // Process complete records in this chunk
-                processChunk(buffer, bytesRead, function, context);
+                leftoverBuffer.write(buffer, 0, bytesRead);
+                byte[] combined = leftoverBuffer.toByteArray();
+                try (ByteArrayInputStream chunkStream = new ByteArrayInputStream(combined)) {
+                    DeserializationResult<T> result = deserializer.deserializeChunk(chunkStream);
+                    for (T record : result.records()) {
+                        handler.accept(record, context);
+                    }
+                    // Preserve only leftover unparsed bytes
+                    byte[] leftoverBytes = Arrays.copyOfRange(combined, result.bytesConsumed(), combined.length);
+                    leftoverBuffer.reset();
+                    leftoverBuffer.write(leftoverBytes);
+                } catch (IOException e) {
+                    logger.error("Failed to deserialize chunk", e);
+                } catch (Exception e) {
+                    logger.error("Unexpected error during deserialization", e);
+                }
             }
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-
-    private void processChunk(byte[] buffer, int length, BiConsumer<T, StreamletContext> function, StreamletContext context) throws IOException {
-        this.leftoverBuffer.write(buffer, 0, length);
-        byte[] data = this.leftoverBuffer.toByteArray();
-        ByteArrayInputStream recordInput = new ByteArrayInputStream(data);
-        this.leftoverBuffer.reset();  // Reset buffer to store new leftover data
-
-        while (recordInput.available() > 0) {
-            recordInput.mark(0); // Mark the start of a potential record
-            try {
-                T record = this.deserializer.deserialize(recordInput);
-                function.accept(record, context);
-            } catch (EOFException e) {
-                // Not enough data for a full record, save the leftover bytes
-                this.leftoverBuffer.write(data, data.length - recordInput.available(), recordInput.available());
-                break;
-            }
+        } catch (IOException e) {
+            throw new RuntimeException("Stream handling failed", e);
         }
     }
 }
+

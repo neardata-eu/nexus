@@ -10,14 +10,14 @@ import io.nexus.streamlets.metadata.StreamletDescriptor;
 import io.nexus.streamlets.metadata.StreamletDescriptor.ExecuteOn;
 import io.nexus.streamlets.metadata.StreamletExecutionDescriptor;
 import io.nexus.streamlets.state.StreamletStateManager;
-import io.nexus.streamlets.state.backends.InMemoryStateBackend;
-import io.nexus.streamlets.state.backends.RedisStateBackend;
 import io.nexus.streamlets.utils.FastPipedInputStream;
 import io.nexus.streamlets.utils.FastPipedOutputStream;
 import io.nexus.streamlets.utils.StreamletIO;
+import io.nexus.streamlets.utils.StreamletsCache;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import io.pravega.common.concurrent.Futures;
 
+import io.pravega.common.concurrent.MultiKeySequentialProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,10 +29,12 @@ import java.io.OutputStream;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
 /**
@@ -43,18 +45,42 @@ public class StreamletsExecutor implements Closeable {
     final Logger logger = LoggerFactory.getLogger(StreamletsExecutor.class);
     private final ScheduledExecutorService streamletExecutor;
     private final MetadataService metadataService;
-    private final StreamletLoader streamletLoader;
     private final StreamletStateManager stateManager;
+    private final MultiKeySequentialProcessor<String> processor;
+    private final StreamletsCache streamletsCache;
 
-    public StreamletsExecutor(MetadataService metadataService) {
+    public StreamletsExecutor(MetadataService metadataService, StreamletStateManager stateManager) {
         // Create a separate thread pool for executing streamlets
         this.streamletExecutor = ExecutorServiceHelpers.newScheduledThreadPool(40, "streamlet-threadpool");
         this.metadataService = metadataService;
-        this.streamletLoader = new StreamletLoader(metadataService);
-        this.stateManager = new StreamletStateManager(new InMemoryStateBackend()); // TODO: Factory-based instantiation
+        StreamletLoader streamletLoader = new StreamletLoader(metadataService);
+        this.streamletsCache = new StreamletsCache(10000, 1, TimeUnit.HOURS, streamletLoader);
+        this.stateManager = stateManager;
+        this.processor = new MultiKeySequentialProcessor<>(this.streamletExecutor);
     }
 
     // region public methods
+
+    /**
+     * Adds a storage request to the queue for streamlet processing. The semantics of the queue are that requests to
+     * different stream partitions will be processed in parallel. However, requests to the same stream partition will be
+     * processed sequentially. This is a requirement to linearize updates to metadata in stateful streamlets.
+     *
+     * @param policy           The policy defining which streamlets should be executed.
+     * @param streamPartition  The stream partition at hand.
+     * @param streamletInput   The input stream containing the data to be processed.
+     * @param forwardStream    Whether this is a Put or a Get request.
+     * @param streamletResult  The output stream where the processed data will be written.
+     * @return A {@link CompletableFuture} that completes when the request is fully processed.
+     * @throws NoPolicySetException If no streamlets are applicable based on the policy.
+     * @throws RuntimeException If an error occurs while retrieving metadata or processing the request.
+     */
+    public CompletableFuture<Long> processRequest(Policy policy, StreamPartition streamPartition, InputStream streamletInput,
+                                                  boolean forwardStream, RequestContext context, OutputStream streamletResult) {
+        // TODO: Make sure that getScopedPartitionUri() is what we want, we are working with it in the queue and the cache
+        return this.processor.add(Collections.singleton(streamPartition.getScopedPartitionUri()),
+                () -> processRequestInternal(policy, streamPartition, streamletInput, forwardStream, context, streamletResult));
+    }
 
     /**
      * Processes a request by executing the streamlets associated with the given policy. If no streamlets are applicable,
@@ -70,10 +96,10 @@ public class StreamletsExecutor implements Closeable {
      * @throws NoPolicySetException If no streamlets are applicable based on the policy.
      * @throws RuntimeException If an error occurs while retrieving metadata or processing the request.
      */
-    public CompletableFuture<Long> processRequest(Policy policy, StreamPartition streamPartition, InputStream streamletInput,
+     CompletableFuture<Long> processRequestInternal(Policy policy, StreamPartition streamPartition, InputStream streamletInput,
                                                   boolean forwardStream, RequestContext context, OutputStream streamletResult) {
         // Getting all streamlets that should be executed based on the applied policy and their metadata.
-        List<Streamlet> streamletsToBeExecuted = fillStreamletPipelineFromPolicy(policy, forwardStream);
+        List<Streamlet> streamletsToBeExecuted = buildStreamletPipelineFromPolicy(streamPartition, policy, forwardStream);
         if (streamletsToBeExecuted.isEmpty()) {
             // If there are no streamlets to be executed, forward the blob to the next Swarmlet or final destination.
             logger.warn("No streamlets to be executed {}", streamPartition.getScopedObjectName());
@@ -106,7 +132,7 @@ public class StreamletsExecutor implements Closeable {
      * @return A list of {@link Streamlet} instances that should be executed according to the policy.
      * @throws RuntimeException If an error occurs while retrieving streamlets from the policy.
      */
-    private List<Streamlet> fillStreamletPipelineFromPolicy(Policy policy, boolean forwardStream) {
+    private List<Streamlet> buildStreamletPipelineFromPolicy(StreamPartition streamPartition, Policy policy, boolean forwardStream) {
         try {
             // Build the execution pipeline of streamlets based on the policy defined in this Region. For PUTs, the
             // pipeline is executed left-to-right. For GETs, the pipeline execution is reversed.
@@ -117,7 +143,13 @@ public class StreamletsExecutor implements Closeable {
             // Check if the streamlet is to be executed as per the request type and return the list of executable functions.
             return policyPipeline.stream()
                     .filter(s -> shouldExecuteStreamletOnRequest(s.getStreamlet(), forwardStream))
-                    .map(s -> this.streamletLoader.createStreamlet(s.getStreamlet().getId()))
+                    .map(s -> {
+                        // Load state of Streamlet, if any.
+                        boolean isCachedStreamlet = this.streamletsCache.exists(streamPartition.getScopedPartitionUri(), s.getStreamlet().getId());
+                        Streamlet streamlet = this.streamletsCache.getOrLoadStreamlet(streamPartition.getScopedPartitionUri(), s.getStreamlet().getId());
+                        this.stateManager.loadPersistentFields(streamlet, isCachedStreamlet, streamPartition);
+                        return streamlet;
+                    })
                     .toList();
         } catch (Exception e) {
             logger.debug("Error finding streamlet from policy pipeline");
@@ -134,12 +166,15 @@ public class StreamletsExecutor implements Closeable {
      * @return {@code true} if the streamlet should be executed for the given request type, {@code false} otherwise.
      */
     private boolean shouldExecuteStreamletOnRequest(StreamletDescriptor streamletDescriptor, boolean forwardStream) {
+        // On GETs, we do not need to execute DataSource and DataRouting streamlets, as they are executed on preGET.
+        if (!forwardStream && (streamletDescriptor.isDataSource() || streamletDescriptor.isDataRouting())) return false;
+        // For the rest, check if the type of request is supported.
         ExecuteOn executeOn = streamletDescriptor.getExecuteOn();
         if (executeOn == ExecuteOn.ALL)
             return true;
         if (forwardStream & executeOn == ExecuteOn.PUT)
             return true;
-        return !forwardStream & executeOn == ExecuteOn.GET;
+        return !forwardStream && executeOn == ExecuteOn.GET;
     }
 
     /**
@@ -241,8 +276,6 @@ public class StreamletsExecutor implements Closeable {
         List<CompletableFuture<Void>> pipeline = new ArrayList<>();
         int index = 0;
         for (Streamlet streamlet : streamletsToBeExecuted) {
-            // Load state of Streamlet, if any.
-            this.stateManager.loadPersistentFields(streamlet);
             StreamletIO dataStreams = new StreamletIO(dataPipeline.get(index).getKey(), dataPipeline.get(index).getValue());
             index++;
             // Based on the pipeline flow, execute each Streamlet's PUT/GET accordingly.
@@ -250,7 +283,8 @@ public class StreamletsExecutor implements Closeable {
             pipeline.add(CompletableFuture.runAsync(() -> currentStreamlet.accept(dataStreams, context), this.streamletExecutor));
         }
         // Store streamlet state after pipeline execution.
-        return Futures.allOf(pipeline).thenAccept(v -> streamletsToBeExecuted.forEach(this.stateManager::savePersistentFields));
+        return Futures.allOf(pipeline).thenAccept(v -> streamletsToBeExecuted.forEach(s ->
+                this.stateManager.savePersistentFields(s, context.getStreamPartition())));
     }
 
     public CompletableFuture<Void> getPreGetTransferFuture(Policy policy, Region currentRegion, StreamPartition streamPartition,
@@ -260,9 +294,11 @@ public class StreamletsExecutor implements Closeable {
             return null;
         }
         // Instantiate the data source streamlet for this region and partition.
-        DataSourceStreamlet dataSourceStreamlet = (DataSourceStreamlet) this.streamletLoader
-                .createStreamlet(policy.getDataSourceStreamletId(currentRegion).get());
-        this.stateManager.loadPersistentFields(dataSourceStreamlet);
+        boolean isCachedStreamlet = this.streamletsCache.exists(streamPartition.getScopedPartitionUri(),
+                policy.getDataSourceStreamletId(currentRegion).get());
+        DataSourceStreamlet dataSourceStreamlet = (DataSourceStreamlet) this.streamletsCache
+                .getOrLoadStreamlet(streamPartition.getScopedPartitionUri(), policy.getDataSourceStreamletId(currentRegion).get());
+        this.stateManager.loadPersistentFields(dataSourceStreamlet, isCachedStreamlet, streamPartition);
         logger.info("Executing pre-GET for Streamlet {}", dataSourceStreamlet);
         InputStream preGetInputStream = dataSourceStreamlet.handlePreGet(streamPartition, context);
         return preGetInputStream == null ? null : CompletableFuture.runAsync(() ->
@@ -271,6 +307,7 @@ public class StreamletsExecutor implements Closeable {
 
     @Override
     public void close() throws IOException {
+        this.processor.close();
         ExecutorServiceHelpers.shutdown(this.streamletExecutor);
     }
 

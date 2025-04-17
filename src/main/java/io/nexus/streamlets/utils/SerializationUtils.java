@@ -59,7 +59,7 @@ public class SerializationUtils {
     }
 
     // TODO: Rework this so we can get an object of a specified type
-    private static void deserializeRecords(byte[] target, int currentBytesRead) {
+    private static void kafkaTieredDataDeserializer(byte[] target, int currentBytesRead) {
         // Deserialize the read data
         ByteBuffer buffer = ByteBuffer.wrap(target, 0, currentBytesRead);
         MemoryRecords records = MemoryRecords.readableRecords(buffer);

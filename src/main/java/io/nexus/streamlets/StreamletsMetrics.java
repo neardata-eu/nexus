@@ -67,6 +67,10 @@ public class StreamletsMetrics {
                         MetricNames.STREAMLET_POLICY_METADATA_RETRIEVAL_DURATION);
         public static final TimerMetric PIPELINE_BUILD_TIMER = new TimerMetric(
                         MetricNames.STREAMLET_PIPELINE_BUILD_DURATION);
+        public static final CounterMetric STREAMLET_STATE_WRITE_OPERATIONS_COUNTER  = new CounterMetric(
+                MetricNames.STREAMLET_STATE_WRITE_OPERATIONS);
+        public static final CounterMetric STREAMLET_STATE_READ_OPERATIONS_COUNTER  = new CounterMetric(
+                MetricNames.STREAMLET_STATE_READ_OPERATIONS);
 
         // Streamlet processing metrics
         public static final TimerMetric PUT_STREAMLET_PIPELINE_EXECUTION_LATENCY_TIMER = new TimerMetric(

@@ -70,6 +70,13 @@ public class Policy {
         return this.pipeline.stream().filter(s -> s.getRegion().equals(region)).toList();
     }
 
+    public List<String> getStreamletArgumentsByName(String streamletName) {
+        return this.pipeline.stream()
+                .filter(s -> s.getStreamlet().getId().endsWith(streamletName))
+                .map(s -> s.getArguments())
+                .findFirst().get();
+    }
+
     /**
      * Returns the next Region in the policy based on the input Region provided. If currentRegion does not exist or
      * is the last Region in the pipeline, the method will retun null.
@@ -112,9 +119,18 @@ public class Policy {
         StreamletDescriptor.ExecuteOn executeOn = isPut ? StreamletDescriptor.ExecuteOn.PUT : StreamletDescriptor.ExecuteOn.GET;
         boolean streamletsToRunForThisRequestType = getStreamletsForRegion(currentRegion).stream()
                 .anyMatch(sed ->
+                        isNotDataSourceStreamletOnGet(sed, isPut) &&
                     sed.getStreamlet().getExecuteOn().equals(StreamletDescriptor.ExecuteOn.ALL)
                     || sed.getStreamlet().getExecuteOn().equals(executeOn));
         return canSwarmletExecuteStreamlets(currentRegion, availableHardware) && streamletsToRunForThisRequestType;
+    }
+
+    private boolean isNotDataSourceStreamletOnGet(StreamletExecutionDescriptor sed, boolean isPut) {
+        return isPut || (!sed.getStreamlet().isDataSource() && !sed.getStreamlet().isDataRouting());
+    }
+
+    public boolean containsStatefulPartitionedStreamlets(Region currentRegion) {
+        return getStreamletsForRegion(currentRegion).stream().anyMatch(s -> s.getStreamlet().isPartitionLocality());
     }
 
     public String getId() {

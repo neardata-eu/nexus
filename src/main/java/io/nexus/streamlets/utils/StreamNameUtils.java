@@ -2,6 +2,7 @@ package io.nexus.streamlets.utils;
 
 import java.util.regex.Matcher;
 
+import io.nexus.streamlets.state.StatePersistenceType;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.MultipartUpload;
 
