@@ -183,12 +183,7 @@ public class PolicyMetadataManager {
             return false;
         if (policy.getStream() == null || policy.getStream().isEmpty())
             return false;
-        if (policy.getPipeline() == null || policy.getPipeline().isEmpty())
-            return false;
-        if (policy.getStorage() == null || policy.getStorage().isEmpty())
-            return false;
-
-        return true;
+        return policy.getPipeline() != null && !policy.getPipeline().isEmpty();
     }
 
     private List<String> inputList(Scanner scanner, String fieldName) {

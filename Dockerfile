@@ -24,7 +24,7 @@ FROM openjdk:21-jdk-slim
 #Setting up default environment variables for Nexus's services
 ENV \
     #Redis Config
-    REDIS_HOST="0.0.0.0" \
+    REDIS_HOST="localhost" \
     REDIS_PORT=6379 \
     # S3Proxy Config
     S3PROXY_IDENTITY="dev-identity" \
@@ -60,6 +60,10 @@ ENV \
 WORKDIR /app
 
 COPY --from=build /app/build/libs/nexus-java.jar /app
+
+# Copy the model directory from the project into the Docker image
+COPY src/main/resources/models/ /app/models/
+
 #Shell command that properly routes the environment variables
 COPY /src/main/resources/docker_entrypoint.sh /app
 

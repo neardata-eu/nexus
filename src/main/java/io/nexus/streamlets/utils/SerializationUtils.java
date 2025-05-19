@@ -7,11 +7,15 @@ import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.util.DefaultClassResolver;
 import com.esotericsoftware.kryo.util.MapReferenceResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.pravega.client.stream.Serializer;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
@@ -83,6 +87,41 @@ public class SerializationUtils {
         byte[] bytes = new byte[buffer.remaining()];
         buffer.slice().get(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    public static class JsonSerializer<T> implements Serializer<T>, Serializable {
+        private final ObjectMapper objectMapper = new ObjectMapper();
+        private final Class<T> valueType;
+
+        public JsonSerializer(Class<T> valueType) {
+            this.valueType = valueType;
+        }
+
+        public ByteBuffer serialize(T value) {
+            byte[] bytes = new byte[0];
+
+            try {
+                bytes = this.objectMapper.writeValueAsBytes(value);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            return ByteBuffer.wrap(bytes);
+        }
+
+        public T deserialize(ByteBuffer serializedValue) {
+            ByteArrayInputStream bin = new ByteArrayInputStream(serializedValue.array(),
+                    serializedValue.position(), serializedValue.remaining());
+            T event = null;
+
+            try {
+                event = (T)this.objectMapper.readValue(bin, this.valueType);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            return event;
+        }
     }
 }
 

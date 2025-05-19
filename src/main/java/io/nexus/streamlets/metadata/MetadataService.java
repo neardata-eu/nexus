@@ -179,14 +179,23 @@ public class MetadataService implements MetadataCallback {
      */
     public Policy getPolicyByScope(String scope) {
         try {
+            // 1. Exact match first
             for (Policy policy : this.policyCache.values()) {
                 if (policy.getScope().equals(scope)) {
                     return policy;
                 }
             }
+
+            // 2. Wildcard support
+            for (Policy policy : this.policyCache.values()) {
+                if (matches(policy.getScope(), scope)) {
+                    return policy;
+                }
+            }
+
             return null;
         } catch (Exception e) {
-            logger.warn("Error while getting policy by scope from metadata service");
+            logger.warn("Error while getting policy by scope from metadata service", e);
             throw new RuntimeException(e);
         }
     }
@@ -200,16 +209,31 @@ public class MetadataService implements MetadataCallback {
      */
     public Policy getPolicyByStream(String scope, String stream) {
         try {
+            // 1. Exact match takes precedence
             for (Policy policy : this.policyCache.values()) {
                 if (policy.getScope().equals(scope) && policy.getStream().equals(stream)) {
                     return policy;
                 }
             }
+
+            // 2. Wildcard support
+            for (Policy policy : this.policyCache.values()) {
+                if (matches(policy.getScope(), scope) && matches(policy.getStream(), stream)) {
+                    return policy;
+                }
+            }
+
             return null;
         } catch (Exception e) {
-            logger.warn("Error while getting policy by stream from metadata service");
+            logger.warn("Error while getting policy by stream from metadata service", e);
             throw new RuntimeException(e);
         }
+    }
+
+    private boolean matches(String pattern, String value) {
+        // Convert wildcard * to regex .*
+        String regex = pattern.replace("*", ".*");
+        return value.matches(regex);
     }
 
     /**

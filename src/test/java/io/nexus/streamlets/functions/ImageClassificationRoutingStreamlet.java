@@ -1,8 +1,7 @@
 package io.nexus.streamlets.functions;
 
-import ai.djl.modality.cv.output.DetectedObjects;
+import ai.djl.modality.Classifications;
 import ai.djl.translate.TranslateException;
-import io.nexus.streamlets.deserializers.ByteArrayDeserializer;
 import io.nexus.streamlets.deserializers.KafkaImageDeserializer;
 import org.junit.jupiter.api.Test;
 
@@ -17,13 +16,13 @@ class ImageClassificationTest {
     @Test
     void testDetectObjects() throws IOException, TranslateException {
         // Load sample image
-        ImageClassificationStreamlet streamlet = new ImageClassificationStreamlet(new KafkaImageDeserializer());
+        ImageClassificationStreamlet streamlet = new KafkaImageClassificationStreamlet(new KafkaImageDeserializer());
         for (int i = 0; i < 100; i++) {
             long startTime = System.currentTimeMillis();
-            try (InputStream is = getClass().getResourceAsStream("/images/test_22.JPEG")) {
+            try (InputStream is = getClass().getResourceAsStream("/images/kitten.jpg")) {
                 assertNotNull(is, "Test image not found in resources!");
                 byte[] imageBytes = readAllBytes(is);
-                DetectedObjects detectedObjects = streamlet.detectObjects(imageBytes);  // Should return detected objects
+                Classifications detectedObjects = streamlet.detectObjects(imageBytes);  // Should return detected objects
                 System.out.println("Detected objects: " + detectedObjects);
                 assertNotNull(detectedObjects);
                 assertFalse(detectedObjects.items().isEmpty());

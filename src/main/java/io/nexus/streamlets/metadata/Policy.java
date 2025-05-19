@@ -73,27 +73,24 @@ public class Policy {
     public List<String> getStreamletArgumentsByName(String streamletName) {
         return this.pipeline.stream()
                 .filter(s -> s.getStreamlet().getId().endsWith(streamletName))
-                .map(s -> s.getArguments())
+                .map(StreamletExecutionDescriptor::getArguments)
                 .findFirst().get();
     }
 
     /**
      * Returns the next Region in the policy based on the input Region provided. If currentRegion does not exist or
-     * is the last Region in the pipeline, the method will retun null.
+     * is the last Region in the pipeline, the method will return null.
      *
      * @param currentRegion
      * @return Next Region in the policy (or null, if there is none).
      */
     public Region getNextRegionToForward(Region currentRegion) {
         Region nextRegion = null;
-        boolean foundCurrentRegion = false;
+        int currentRegionIndex = currentRegion.ordinal();
         for (StreamletExecutionDescriptor sed : this.pipeline) {
-            if (foundCurrentRegion && !sed.getRegion().equals(currentRegion)) {
+            if (sed.getRegion().ordinal() > currentRegionIndex) {
                 // Found the next region to forward the request
                 return sed.getRegion();
-            }
-            if (sed.getRegion().equals(currentRegion)) {
-                foundCurrentRegion = true;
             }
         }
 
@@ -126,7 +123,7 @@ public class Policy {
     }
 
     private boolean isNotDataSourceStreamletOnGet(StreamletExecutionDescriptor sed, boolean isPut) {
-        return isPut || (!sed.getStreamlet().isDataSource() && !sed.getStreamlet().isDataRouting());
+        return isPut || !sed.getStreamlet().isDataRouting();
     }
 
     public boolean containsStatefulPartitionedStreamlets(Region currentRegion) {
@@ -190,16 +187,10 @@ public class Policy {
                 .anyMatch(sed -> sed.getStreamlet().isDataRouting());
     }
 
-    public boolean hasDataSourceStreamlet(Region region) {
+    public Optional<String> getDataRoutingStreamletId(Region region) {
         return this.pipeline.stream()
                 .filter(sed -> sed.getRegion().equals(region))
-                .anyMatch(sed -> sed.getStreamlet().isDataSource());
-    }
-
-    public Optional<String> getDataSourceStreamletId(Region region) {
-        return this.pipeline.stream()
-                .filter(sed -> sed.getRegion().equals(region))
-                .filter(sed -> sed.getStreamlet().isDataSource())
+                .filter(sed -> sed.getStreamlet().isDataRouting())
                 .map(sed -> sed.getStreamlet().getId())
                 .findFirst();
     }
@@ -220,6 +211,4 @@ public class Policy {
                 ", storage=" + storage +
                 '}';
     }
-
-
 }

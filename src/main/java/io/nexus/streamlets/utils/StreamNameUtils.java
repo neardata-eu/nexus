@@ -26,7 +26,7 @@ public class StreamNameUtils {
     public static final String KAFKA_TOPIC_SEPARATOR = "-";
 
     public enum StreamingSystems {
-        KAFKA, PULSAR, DEFAULT
+        KAFKA, PULSAR, PRAVEGA, DEFAULT
     }
 
     public static String getScopeFromRequest(MultipartUpload multipartUpload) {
@@ -63,6 +63,10 @@ public class StreamNameUtils {
         if (matcher.matches())
             return StreamingSystems.PULSAR;
 
+        matcher = StreamPartition.PRAVEGA_PARTITION_OBJECT_PATTERN.matcher(chunkName);
+        if (matcher.matches())
+            return StreamingSystems.PRAVEGA;
+
         matcher = StreamPartition.DEFAULT_PARTITION_OBJECT_PATTERN.matcher(chunkName);
         if (matcher.matches())
             return StreamingSystems.DEFAULT;
@@ -94,6 +98,14 @@ public class StreamNameUtils {
             // a global Pulsar policy for the time being. The POJO will have stream and
             // scope both set to "pulsar"
             return "pulsar";
+
+        case StreamingSystems.PRAVEGA:
+            chunkName = chunkName.replaceFirst(DEFAULT_STREAM_SEPARATOR, "");
+            nameComponents = chunkName.split(DEFAULT_STREAM_SEPARATOR);
+            if (nameComponents.length < 2) {
+                return null;
+            }
+            return nameComponents[index];
 
         // This case is for experimental .txt files only so far
         case StreamingSystems.DEFAULT:

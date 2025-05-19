@@ -24,6 +24,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -219,7 +221,11 @@ public class RequestManager implements Closeable {
                 // Construct the target URL
                 String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ?
                         HTTP_URL_PREFIX + targetServerUrl : targetServerUrl;
-                String targetUrl = curatedTargetURL + container + "/" + blob.getMetadata().getName();
+                // Encode the blob name to handle special characters
+                String blobName = blob.getMetadata().getName();
+                String encodedBlobName = URLEncoder.encode(blobName, StandardCharsets.UTF_8)
+                    .replace("+", "%20");
+                String targetUrl = curatedTargetURL + container + "/" + encodedBlobName;
                 long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
                 logger.info("Started forwarding PUT ({} bytes) to {}.", contentLength, targetUrl);
                 URL url = new URL(targetUrl);

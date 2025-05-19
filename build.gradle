@@ -18,6 +18,17 @@ application {
     }
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+compileJava {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
 shadowJar {
     if (buildCLI == false) {
         println "Building Main Service..."
@@ -43,6 +54,7 @@ sourceCompatibility = '21'
 repositories {
     mavenCentral()
     mavenLocal()
+    maven { url 'https://djl.ai/maven' } // this is required for native libraries
 }
 
 dependencies {
@@ -110,6 +122,8 @@ dependencies {
 
     //Needed for Kafka serialization processes
     implementation group: 'org.apache.kafka', name: 'kafka-clients', version: '3.9.0'
+    implementation 'io.pravega:pravega-client:0.13.0'
+    implementation "org.apache.pulsar:pulsar-client:3.3.6"
 
     // https://mvnrepository.com/artifact/com.esotericsoftware/kryo
     implementation group: 'com.esotericsoftware', name: 'kryo', version: '5.6.2'
@@ -117,11 +131,13 @@ dependencies {
     implementation group: 'org.objenesis', name: 'objenesis', version: '3.4'
 
     // Libraries for inference streamlet
-    implementation 'ai.djl:api:0.24.0'
-    implementation 'ai.djl:model-zoo:0.24.0'
-    implementation 'ai.djl.pytorch:pytorch-engine:0.24.0'
-    implementation 'ai.djl.pytorch:pytorch-model-zoo:0.24.0'
-    implementation 'ai.djl:basicdataset:0.24.0'
+    implementation platform("ai.djl:bom:0.32.0")
+    implementation 'ai.djl:api:0.32.0'
+    implementation 'ai.djl:model-zoo:0.32.0'
+    implementation 'ai.djl.pytorch:pytorch-engine:0.32.0'
+    implementation 'ai.djl.pytorch:pytorch-model-zoo:0.32.0'
+    implementation 'ai.djl:basicdataset:0.32.0'
+    implementation 'ai.djl.pytorch:pytorch-native-cpu-precxx11:2.5.1'
 }
 
 tasks.named('test') {

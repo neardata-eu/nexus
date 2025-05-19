@@ -76,7 +76,9 @@ public class Main {
         // Initialize S3Proxy with the streaming service's endpoint
         S3Proxy s3Proxy = S3Proxy.builder().blobStore(streamletsMiddleware)
                 .endpoint(URI.create(S3PROXY_CONFIG.getEndpoint()))
-                .awsAuthentication(AuthenticationType.NONE, null, null).build();
+                .awsAuthentication(AuthenticationType.NONE, null, null)
+                .ignoreUnknownHeaders(true)
+                .build();
 
         s3Proxy.start();
         logger.info("Initialized S3 Proxy interceptor");

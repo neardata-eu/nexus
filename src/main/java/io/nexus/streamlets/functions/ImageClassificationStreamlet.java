@@ -1,44 +1,57 @@
 package io.nexus.streamlets.functions;
 
-import ai.djl.Application;
 import ai.djl.MalformedModelException;
 import ai.djl.inference.Predictor;
+import ai.djl.modality.Classifications;
 import ai.djl.modality.cv.Image;
 import ai.djl.modality.cv.ImageFactory;
 import ai.djl.modality.cv.output.DetectedObjects;
+import ai.djl.modality.cv.translator.YoloV5Translator;
 import ai.djl.repository.zoo.Criteria;
 import ai.djl.repository.zoo.ModelNotFoundException;
-import ai.djl.repository.zoo.ModelZoo;
 import ai.djl.repository.zoo.ZooModel;
 import ai.djl.training.util.ProgressBar;
+import ai.djl.translate.Translator;
 import com.google.common.annotations.VisibleForTesting;
+import io.nexus.streamlets.Deserializer;
 import io.nexus.streamlets.EventStreamlet;
 import io.nexus.streamlets.context.StreamletContext;
-import io.nexus.streamlets.deserializers.KafkaImageDeserializer;
 import org.slf4j.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class ImageClassificationStreamlet extends EventStreamlet<byte[]> {
+public abstract class ImageClassificationStreamlet extends EventStreamlet<byte[]> {
 
-    private final String name = "IMAGE_CLASSIFICATION";
-    private final String samplingPercentageArgument = "sampling-percentage=";
-    final static String INFERENCE_KEY = "human-images";
-    static final Set<String> HUMAN_CLASSES = Set.of(
+    final static String INFERENCE_MODELS_PATH = "/app/models/";
+    final static String INFERENCE_KEY = "inference-result";
+    final static Set<String> HUMAN_CLASSES = Set.of(
             "person", "man", "woman", "boy", "girl", "bridegroom", "groom", "bride",
             "student", "police_officer", "firefighter", "worker", "athlete"
             // Add more class names from ImageNet that relate to humans
     );
+    protected final String name = "IMAGE_CLASSIFICATION";
+    protected final String samplingPercentageArgument = "sampling-percentage=";
+    protected final Predictor<Image, DetectedObjects> predictor;
+    protected final AtomicReference<Double> samplingPercentage = new AtomicReference<>(1.0);
+    protected final AtomicReference<String> aiModel= new AtomicReference<>("yolov5.torchscript.pt");
+    protected final AtomicReference<String> synsetFile= new AtomicReference<>("coco.names");
 
-    private final Predictor<Image, DetectedObjects> predictor;
-    private final AtomicReference<Double> samplingPercentage = new AtomicReference<>();
-
-    public ImageClassificationStreamlet(KafkaImageDeserializer deserializer) {
+    /**
+     * Constructs a RecordStreamlet with the given deserializer and serializer.
+     *
+     * @param deserializer The deserializer to convert input data into records.
+     */
+    public ImageClassificationStreamlet(Deserializer<byte[]> deserializer) {
         super(deserializer);
         try {
             ZooModel<Image, DetectedObjects> model = loadModel();
@@ -54,7 +67,7 @@ public class ImageClassificationStreamlet extends EventStreamlet<byte[]> {
         Logger logger = context.getLogger();
         // Perform inference according to the sampling percentage.
         if (new Random().nextDouble() * 100 <= this.samplingPercentage.get()) {
-            DetectedObjects detectedObjects = detectObjects(imageBytes);
+            Classifications detectedObjects = detectObjects(imageBytes);
             boolean isHuman = detectedObjects.items().stream().anyMatch(item ->
                     HUMAN_CLASSES.contains(item.getClassName()));
             // route or annotate the image based on this decision
@@ -95,19 +108,45 @@ public class ImageClassificationStreamlet extends EventStreamlet<byte[]> {
         }
     }
 
-    private ZooModel<Image, DetectedObjects> loadModel() throws IOException, ModelNotFoundException, MalformedModelException {
-        Criteria<Image, DetectedObjects> criteria = Criteria.builder()
-                .optApplication(Application.CV.OBJECT_DETECTION)
-                .setTypes(Image.class, DetectedObjects.class)
-                // SSD MODEL
-                //.optArtifactId("ssd")
-                // resnet 50
-                .optFilter("backbone", "resnet50") // or "mobilenet"
-                .optEngine("PyTorch") // Faster R-CNN models are typically implemented in PyTorch
-                .optProgress(new ProgressBar())
+    protected ZooModel<Image, DetectedObjects> loadModel() throws IOException, ModelNotFoundException, MalformedModelException {
+        Map<String, Object> arguments = new ConcurrentHashMap<>();
+        arguments.put("width", 640);
+        arguments.put("height", 640);
+        arguments.put("resize", true);
+        arguments.put("rescale", true);
+
+        Translator<Image, DetectedObjects> translator = YoloV5Translator.builder(arguments)
+                .optSynsetArtifactName(synsetFile.get())
                 .build();
-        return ModelZoo.loadModel(criteria);
+
+        Criteria<Image, DetectedObjects> criteria =
+                Criteria.builder()
+                        .setTypes(Image.class, DetectedObjects.class)
+                        .optModelPath(resolveModelPath(INFERENCE_MODELS_PATH, ClassLoader.getSystemResource("models/").getPath()))
+                        .optEngine("PyTorch")
+                        .optModelName(aiModel.get())
+                        .optTranslator(translator)
+                        .optProgress(new ProgressBar())
+                        .build();
+
+        return criteria.loadModel();
+    }
+
+    /**
+     * This method loads the model either from the expected location in the Docker image or in the project's local path.
+     *
+     * @param preferredPath Preferred AI model path.
+     * @param fallbackPath Fallback AI model path.
+     * @return Actual path for the AI model to be loaded.
+     */
+    static Path resolveModelPath(String preferredPath, String fallbackPath) {
+        Path preferred = Paths.get(preferredPath);
+        if (Files.exists(preferred)) {
+            System.out.println("Using preferred model path: " + preferred);
+            return preferred;
+        } else {
+            System.out.println("Preferred model path not found, falling back to: " + fallbackPath);
+            return Paths.get(fallbackPath);
+        }
     }
 }
-
-

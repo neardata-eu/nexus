@@ -329,7 +329,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             if (headersBlob == null) {
                 // This may happen in some rare concurrency situations. Report and return.
                 logger.error("Null blob in GET request {} / {}, just returning", containerName, blobName);
-                return headersBlob; 
+                //return headersBlob;
+                throw new NullPointerException("Null blob in GET request");
             }
             List<String> transformerStreamlets = ObjectTagsUtils.getTransformerStreamletsFromRequest(
                     headersBlob.getAllHeaders(), currentRegion);

@@ -34,7 +34,6 @@ public abstract class EventStreamlet<T> implements Streamlet {
     private final Logger logger = LoggerFactory.getLogger(EventStreamlet.class);
     private final static int READ_SIZE = 512 * 1024;
     private final Deserializer<T> deserializer;
-    private final ByteArrayOutputStream leftoverBuffer = new ByteArrayOutputStream();
 
     /**
      * Constructs a RecordStreamlet with the given deserializer and serializer.

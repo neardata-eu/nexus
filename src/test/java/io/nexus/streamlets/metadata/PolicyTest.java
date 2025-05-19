@@ -22,11 +22,11 @@ public class PolicyTest {
         region2 = Region.CLOUD;
 
         StreamletDescriptor streamlet1 = new StreamletDescriptor("Streamlet1", StreamletDescriptor.ExecuteOn.ALL,
-                Hardware.NONE, false, false, false, false);
+                Hardware.NONE, false, false, false);
         StreamletDescriptor streamlet2 = new StreamletDescriptor("Streamlet2", StreamletDescriptor.ExecuteOn.ALL,
-                Hardware.GPU, true, true, false, false);
+                Hardware.GPU, true, true, false);
         StreamletDescriptor streamlet3 = new StreamletDescriptor("Streamlet3", StreamletDescriptor.ExecuteOn.ALL,
-                Hardware.NONE, false, false, false, false);
+                Hardware.NONE, false, false, false);
 
         sed1 = new StreamletExecutionDescriptor(streamlet1, region1, List.of("arg1"));
         sed2 = new StreamletExecutionDescriptor(streamlet2, region1, List.of("arg2"));

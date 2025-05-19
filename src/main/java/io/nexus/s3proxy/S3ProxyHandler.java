@@ -2018,6 +2018,7 @@ public class S3ProxyHandler {
         // defaults to use the S3BlobStorage configuration as the final storage for data. This means that
         // we cannot change where data is stored manipulating request headers or options. We need to interrupt
         // the request processing and take control of the request by manually routing it to the right endpoint.
+        eTag = null;
         try {
             eTag = blobStore.putBlob(containerName, builder.build(), options);
         } catch (Exception e) {
@@ -2028,13 +2029,13 @@ public class S3ProxyHandler {
                 logger.error("Policy set for a Stream that cannot be executed with existing Swarmlets.", e);
                 response.sendError(500);
             }
-        } finally {
-            // TODO: Check whether to take care of eTag
-            eTag = "1234566789";
         }
 
+        // Make sure the eTag is returned if set
+        if (eTag != null && !eTag.isEmpty()) {
+            response.setHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        }
         addCorsResponseHeader(request, response);
-        response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
 
     private void handlePostBlob(HttpServletRequest request,

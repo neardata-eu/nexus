@@ -167,7 +167,7 @@ public class StreamletsExecutor implements Closeable {
      */
     private boolean shouldExecuteStreamletOnRequest(StreamletDescriptor streamletDescriptor, boolean forwardStream) {
         // On GETs, we do not need to execute DataSource and DataRouting streamlets, as they are executed on preGET.
-        if (!forwardStream && (streamletDescriptor.isDataSource() || streamletDescriptor.isDataRouting())) return false;
+        if (!forwardStream && streamletDescriptor.isDataRouting()) return false;
         // For the rest, check if the type of request is supported.
         ExecuteOn executeOn = streamletDescriptor.getExecuteOn();
         if (executeOn == ExecuteOn.ALL)
@@ -289,15 +289,15 @@ public class StreamletsExecutor implements Closeable {
 
     public CompletableFuture<Void> getPreGetTransferFuture(Policy policy, Region currentRegion, StreamPartition streamPartition,
                                                            StreamletContext context, FastPipedOutputStream streamletInputOutputStream) {
-        if (!policy.hasDataSourceStreamlet(currentRegion)) {
+        if (!policy.hasDataRoutingStreamlet(currentRegion)) {
             // No data source streamlet, skipping.
             return null;
         }
         // Instantiate the data source streamlet for this region and partition.
         boolean isCachedStreamlet = this.streamletsCache.exists(streamPartition.getScopedPartitionUri(),
-                policy.getDataSourceStreamletId(currentRegion).get());
+                policy.getDataRoutingStreamletId(currentRegion).get());
         DataSourceStreamlet dataSourceStreamlet = (DataSourceStreamlet) this.streamletsCache
-                .getOrLoadStreamlet(streamPartition.getScopedPartitionUri(), policy.getDataSourceStreamletId(currentRegion).get());
+                .getOrLoadStreamlet(streamPartition.getScopedPartitionUri(), policy.getDataRoutingStreamletId(currentRegion).get());
         this.stateManager.loadPersistentFields(dataSourceStreamlet, isCachedStreamlet, streamPartition);
         logger.info("Executing pre-GET for Streamlet {}", dataSourceStreamlet);
         InputStream preGetInputStream = dataSourceStreamlet.handlePreGet(streamPartition, context);

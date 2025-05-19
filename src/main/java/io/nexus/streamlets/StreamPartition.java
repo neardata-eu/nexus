@@ -16,6 +16,9 @@ public class StreamPartition {
     public final static Pattern PULSAR_PARTITION_OBJECT_PATTERN = Pattern
             .compile("^([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-ledger-([0-9]+)$");
 
+    public static final Pattern PRAVEGA_PARTITION_OBJECT_PATTERN = Pattern.compile(
+            "^/(?!_system)([^/]+)/([^/]+)/([0-9]+\\.#epoch[^/]*)$");
+
     public final String container;
     public final String scope;
     public final String stream;
@@ -42,6 +45,7 @@ public class StreamPartition {
         return switch (streamingSystem) {
             case "kafka" -> buildStreamPartitionPojoFromKafkaRequestPath(objectPath, container);
             case "pulsar" -> buildStreamPartitionPojoFromPulsarRequestPath(objectPath, container);
+            case "pravega" -> buildStreamPartitionPojoFromPravegaRequestPath(objectPath, container);
             default ->
                 // This is useful for testing without having to run a streaming system.
                     buildDefaultStreamPartitionPojoFromRequestPath(objectPath, container);
@@ -73,6 +77,18 @@ public class StreamPartition {
 
         // The object doesn't match the pattern.
         throw new MalformedStreamStorageRequestException("Pulsar request not matching pattern.");
+    }
+
+    public static StreamPartition buildStreamPartitionPojoFromPravegaRequestPath(
+            String fullyQualifiedPravegaRequestPath, String container) {
+        Matcher matcher = PRAVEGA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPravegaRequestPath);
+        if (matcher.matches()) {
+
+            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(3));
+        }
+
+        // The object doesn't match the pattern.
+        throw new MalformedStreamStorageRequestException("Kafka request not matching pattern.");
     }
 
     public static StreamPartition buildDefaultStreamPartitionPojoFromRequestPath(String fullyQualifiedRequestPath,

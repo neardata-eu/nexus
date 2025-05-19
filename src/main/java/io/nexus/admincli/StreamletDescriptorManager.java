@@ -68,7 +68,6 @@ public class StreamletDescriptorManager {
         streamletDescriptor.setPartitionLocality(inputPartitionLocality(scanner));
         streamletDescriptor.setTransformsContent(inputTransformsContent(scanner));
         streamletDescriptor.setDataRouting(inputDataRouting(scanner));
-        streamletDescriptor.setDataSource(inputDataSource(scanner));
         streamletDescriptor.setHardware(inputHardware(scanner));
 
         // Validations and storage
@@ -133,10 +132,6 @@ public class StreamletDescriptorManager {
             System.out.println("\nCurrent is data routing: "
                     + (streamletDescriptor.isDataRouting() ? "Yes" : "No") + " ");
             streamletDescriptor.setDataRouting(inputDataRouting(scanner));
-
-            System.out.println("\nCurrent is data source: "
-                    + (streamletDescriptor.isDataSource() ? "Yes" : "No") + " ");
-            streamletDescriptor.setDataSource(inputDataSource(scanner));
 
             System.out.println("\nCurrently hardware required: " + streamletDescriptor.getHardware());
             streamletDescriptor.setHardware(inputHardware(scanner));
@@ -234,10 +229,6 @@ public class StreamletDescriptorManager {
 
     private static Boolean inputDataRouting(Scanner scanner) {
         return inputBoolean(scanner, "Is a data routing Streamlet? (Y/N)");
-    }
-
-    private static Boolean inputDataSource(Scanner scanner) {
-        return inputBoolean(scanner, "Is a data source Streamlet? (Y/N)");
     }
 
     private static Boolean inputBoolean(Scanner scanner, String prompt) {
