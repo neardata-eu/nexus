@@ -1,6 +1,8 @@
 package io.nexus.streamlets.functions;
 
+import ai.djl.Device;
 import ai.djl.MalformedModelException;
+import ai.djl.engine.Engine;
 import ai.djl.inference.Predictor;
 import ai.djl.modality.Classifications;
 import ai.djl.modality.cv.Image;
@@ -17,6 +19,7 @@ import io.nexus.streamlets.Deserializer;
 import io.nexus.streamlets.EventStreamlet;
 import io.nexus.streamlets.context.StreamletContext;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -31,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class ImageClassificationStreamlet extends EventStreamlet<byte[]> {
+    private final Logger logger = LoggerFactory.getLogger(ImageClassificationStreamlet.class);
 
     final static String INFERENCE_MODELS_PATH = "/app/models/";
     final static String INFERENCE_KEY = "inference-result";
@@ -43,9 +47,10 @@ public abstract class ImageClassificationStreamlet extends EventStreamlet<byte[]
     protected final String samplingPercentageArgument = "sampling-percentage=";
     protected final Predictor<Image, DetectedObjects> predictor;
     protected final AtomicReference<Double> samplingPercentage = new AtomicReference<>(1.0);
-    protected final AtomicReference<String> aiModel= new AtomicReference<>("yolov5.torchscript.pt");
-    protected final AtomicReference<String> synsetFile= new AtomicReference<>("coco.names");
-
+    boolean cudaAvailable;
+    
+    protected final AtomicReference<String> aiModel;
+    protected final AtomicReference<String> synsetFile;
     /**
      * Constructs a RecordStreamlet with the given deserializer and serializer.
      *
@@ -53,6 +58,13 @@ public abstract class ImageClassificationStreamlet extends EventStreamlet<byte[]
      */
     public ImageClassificationStreamlet(Deserializer<byte[]> deserializer) {
         super(deserializer);
+
+        //Loading the model based on the respective hardware available
+        cudaAvailable = Engine.getInstance().getGpuCount() > 0;
+        logger.info(cudaAvailable? "CUDA available. Loading GPU model...":"NO CUDA detected. Loading CPU model...");
+        aiModel= new AtomicReference<>(cudaAvailable? "yolov5s-gpu.torchscript.pt" : "yolov5.torchscript.pt");
+        synsetFile= new AtomicReference<>("coco.names");
+    
         try {
             ZooModel<Image, DetectedObjects> model = loadModel();
             this.predictor = model.newPredictor();
@@ -102,6 +114,7 @@ public abstract class ImageClassificationStreamlet extends EventStreamlet<byte[]
     DetectedObjects detectObjects(byte[] imageBytes) {
         try {
             Image img = ImageFactory.getInstance().fromInputStream(new ByteArrayInputStream(imageBytes));
+        
             return predictor.predict(img);
         } catch (Exception e) {
             throw new RuntimeException("Detection error", e);
@@ -127,6 +140,7 @@ public abstract class ImageClassificationStreamlet extends EventStreamlet<byte[]
                         .optModelName(aiModel.get())
                         .optTranslator(translator)
                         .optProgress(new ProgressBar())
+                        .optDevice(cudaAvailable? Device.gpu() : Device.cpu())
                         .build();
 
         return criteria.loadModel();

@@ -41,4 +41,4 @@ exec java \
     -Djclouds.azureblob.account="${JCLOUDS_AZUREBLOB_ACCOUNT}" \
     -Dredis.host="${REDIS_HOST:-localhost}" \
     -Dredis.port="${REDIS_PORT:-6379}" \
-    -jar /app/nexus-java.jar
+    -jar /app/nexus-java.jar --cuda -Dai.djl.logging.level=debug 

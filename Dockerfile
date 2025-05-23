@@ -1,6 +1,6 @@
 # Stage 1: Build the JAR
-# After some research and trials, JDK 21 is the most comptabile version with the current Nexus implementation
-# As a result, Gradle 8.3 will be used since it is the most compatabile one with said JDK
+# After some research and trials, JDK 21 is the most compatible version with the current Nexus implementation
+# As a result, Gradle 8.3 will be used since it is the most compatible one with said JDK
 FROM openjdk:21-jdk-slim AS build
 
 # Installing Gradle
@@ -19,8 +19,18 @@ RUN gradle shadowJar
 
 #########################
 # Stage 2: Copy the generated JAR from the previous stage and run it
-FROM openjdk:21-jdk-slim
+# Using the DJL/PyTorch image for multi-device inference support
+FROM deepjavalibrary/djl-serving:0.32.0-pytorch-gpu
 
+
+ENV PATH="/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}"
+
+RUN apt update && \
+    apt install -y openjdk-21-jdk libfontconfig1 nano wget curl && \
+    apt clean
+
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
 #Setting up default environment variables for Nexus's services
 ENV \
     #Redis Config

@@ -2,12 +2,14 @@ package io.nexus.streamlets.deserializers;
 
 import io.nexus.streamlets.DeserializationResult;
 import io.nexus.streamlets.Deserializer;
+
 import org.apache.kafka.common.errors.CorruptRecordException;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.BufferUnderflowException;
@@ -16,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class KafkaImageDeserializer implements Deserializer<byte[]> {
+    private final Logger logger = LoggerFactory.getLogger(KafkaImageDeserializer.class);
 
     @Override
     public DeserializationResult<byte[]> deserializeChunk(InputStream input) throws IOException {
@@ -37,7 +40,7 @@ public class KafkaImageDeserializer implements Deserializer<byte[]> {
                 }
             }
         } catch (CorruptRecordException | BufferUnderflowException e) {
-            // likely a partial batch: ignore and return what we have
+            logger.error("Kafka Deserialization Error: {}", e);
         }
         return new DeserializationResult<>(result, bytesConsumed);
     }
