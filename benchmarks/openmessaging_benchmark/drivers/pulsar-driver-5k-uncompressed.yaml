@@ -1,0 +1,36 @@
+name: Pulsar
+driverClass: io.openmessaging.benchmark.driver.pulsar.PulsarBenchmarkDriver
+
+# Pulsar client-specific configuration
+client:
+  serviceUrl: pulsar://pulsar-svc:6650
+  httpUrl: http://pulsar-svc:8080
+  ioThreads: 16
+  connectionsPerBroker: 1
+  clusterName: pulsar-mini
+  namespacePrefix: public/default
+  topicType: persistent
+  persistence:
+    ensembleSize: 1
+    writeQuorum: 1
+    ackQuorum: 1
+    deduplicationEnabled: false
+  tlsAllowInsecureConnection: false
+  tlsEnableHostnameVerification: false
+  tlsTrustCertsFilePath:
+  authentication:
+    plugin:
+    data:
+
+# Producer configuration
+producer:
+  batchingEnabled: true
+  batchingMaxPublishDelayMs: 5
+  batchingMaxBytes: 5000
+  blockIfQueueFull: true
+  pendingQueueSize: 0
+  compressionType: NONE
+
+consumer:
+  receiverQueueSize: 10000
+  subscriptionType: Failover

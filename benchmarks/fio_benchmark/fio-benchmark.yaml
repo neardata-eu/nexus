@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fio-deployment
+  namespace: nexus-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fio
+  template:
+    metadata:
+      labels:
+        app: fio
+    spec:
+      containers:
+        - name: fio
+          image: hossamelghamry/fio-nexus
+          env:
+              #Set to minio-svc or nexus-svc
+            - name: FIO_HOST
+              value: "nexus-svc"
+              #Minio = 9000
+              #Nexus = 9092
+            - name: FIO_PORT
+              value: "9092"
+
+            - name: IDENTITY
+              value: minioadmin
+            - name: CREDENTIALS
+              value: minioadmin
+            - name: BUCKET_NAME
+              value: test-bucket
+              #For NoOpStreamlet benchmarking, use .txt
+              #For interception skips, use any other format
+            - name: BLOB_NAME
+              value: "scope/stream/test.abc"
+            - name: HTTP_VERBOSE
+              value: "0"
+
+            #For reference: https://fio.readthedocs.io/en/latest/fio_doc.html#cmdoption-arg-blocksize
+            - name: BLOCK_SIZE
+              value: "4M"
+            #For reference: https://fio.readthedocs.io/en/latest/fio_doc.html#cmdoption-arg-size
+            - name: FILE_SIZE
+              value: "4M" 

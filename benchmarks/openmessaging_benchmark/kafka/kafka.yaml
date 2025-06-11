@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: kafka-broker
+  name: kafka-svc
+spec:
+  ports:
+  - port: 9092
+  selector:
+    app: kafka-broker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-broker
+  name: kafka-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-broker
+  template:
+    metadata:
+      labels:
+        app: kafka-broker
+    spec:
+      hostname: kafka-broker
+      containers:
+      - env:
+        - name: KAFKA_BROKER_ID
+          value: "0"
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: 'zookeeper-svc:2181'
+        - name: KAFKA_LISTENERS
+          value: PLAINTEXT://0.0.0.0:9092,BROKER://0.0.0.0:29092
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: PLAINTEXT://kafka-svc:9092,BROKER://kafka-broker:29092
+        - name:  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: PLAINTEXT:PLAINTEXT,BROKER:PLAINTEXT
+        - name:  KAFKA_INTER_BROKER_LISTENER_NAME
+          value: BROKER
+        - name:  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name:  KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS
+          value: "1"
+        - name:  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+        - name:  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
+        - name:  KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: "true"
+
+          #TODO: Kafka broker compression
+        - name: KAFKA_COMPRESSION_TYPE
+          value: "uncompressed"
+        - name:  KAFKA_RSM_CONFIG_COMPRESSION_ENABLED
+          value: "false"
+        
+        # Increase Tiered Storage log level
+        - name:  KAFKA_LOG4J_LOGGERS
+          value: io.aiven.kafka.tieredstorage=DEBUG
+        # Tweak retention checking
+        - name:  KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS
+          value: "10000"
+        # Enable Tiered Storage
+        - name:  KAFKA_REMOTE_LOG_STORAGE_SYSTEM_ENABLE
+          value: "true"
+        - name:  KAFKA_REMOTE_LOG_MANAGER_TASK_INTERVAL_MS
+          value: "5000"
+        # Remote metadata manager
+        - name:  KAFKA_REMOTE_LOG_METADATA_MANAGER_CLASS_NAME
+          value: org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManager
+        - name:  KAFKA_REMOTE_LOG_METADATA_MANAGER_LISTENER_NAME
+          value: BROKER
+        - name:  KAFKA_RLMM_CONFIG_REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        # Remote storage manager
+        - name:  KAFKA_REMOTE_LOG_STORAGE_MANAGER_CLASS_PATH
+          value: /tiered-storage-for-apache-kafka/core/*:/tiered-storage-for-apache-kafka/s3/*
+        - name:  KAFKA_REMOTE_LOG_STORAGE_MANAGER_CLASS_NAME
+          value: io.aiven.kafka.tieredstorage.RemoteStorageManager
+        - name:  KAFKA_RSM_CONFIG_CHUNK_SIZE
+          value: "8388608"
+        - name:  KAFKA_RSM_CONFIG_FETCH_CHUNK_CACHE_CLASS
+          value: io.aiven.kafka.tieredstorage.fetch.cache.DiskChunkCache
+        - name:  KAFKA_RSM_CONFIG_FETCH_CHUNK_CACHE_PATH
+          value: /home/appuser/kafka-tiered-storage-cache
+        - name:  KAFKA_RSM_CONFIG_FETCH_CHUNK_CACHE_SIZE
+          value: "1073741824"
+        - name:  KAFKA_RSM_CONFIG_FETCH_CHUNK_CACHE_PREFETCH_MAX_SIZE
+          value: "16777216"
+        - name:  KAFKA_RSM_CONFIG_FETCH_CHUNK_CACHE_RETENTION_MS
+          value: "600000"
+        - name:  KAFKA_RSM_CONFIG_CUSTOM_METADATA_FIELDS_INCLUDE
+          value: REMOTE_SIZE
+
+
+        # Storage backend
+        - name:  KAFKA_RSM_CONFIG_STORAGE_BACKEND_CLASS
+          value: io.aiven.kafka.tieredstorage.storage.s3.S3Storage
+        - name:  KAFKA_RSM_CONFIG_STORAGE_S3_ENDPOINT_URL
+          value: 'http://nexus-svc:9092'
+        - name:  KAFKA_RSM_CONFIG_STORAGE_S3_BUCKET_NAME
+          value: kafka-bucket
+        - name:  KAFKA_RSM_CONFIG_STORAGE_S3_REGION
+          value: us-east-1
+        - name:  KAFKA_RSM_CONFIG_STORAGE_S3_PATH_STYLE_ACCESS_ENABLED
+          value: "true"
+        - name:  KAFKA_RSM_CONFIG_STORAGE_AWS_ACCESS_KEY_ID
+          value: minioadmin
+        - name:  KAFKA_RSM_CONFIG_STORAGE_AWS_SECRET_ACCESS_KEY
+          value: minioadmin
+        # ADDED
+        - name:  KAFKA_LOG_SEGMENT_BYTES
+          value: "20971520"
+        - name:  KAFKA_METADATA_LOG_SEGMENT_BYTES
+          value: "10485760"
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xmx4G -Xms4G"
+
+        name: kafka-broker
+        image: raulgracia/kafka:3.7.0-tiered-storage
+        imagePullPolicy: Always
+        resources:
+            requests:
+              cpu: 4
+              memory: 8Gi
+        ports:
+        - containerPort: 9092
