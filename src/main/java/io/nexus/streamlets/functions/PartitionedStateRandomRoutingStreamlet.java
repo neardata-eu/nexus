@@ -46,7 +46,7 @@ public class PartitionedStateRandomRoutingStreamlet extends ByteStreamlet implem
             S3StorageConfig config = context.getS3StorageConfigs().get(new Random().nextInt(0 ,context.getS3StorageConfigs().size()));
             logger.info("PUT - Streamlet: {}  routing data to {}.", name, config);
             context.routeObjectToPolicyStorage(config, bufferedData.getData().getReader(), bufferedData.size());
-            this.persistentMap.put(context.getStreamPartition().getScopedObjectName(), config);
+            this.persistentMap.put(context.getStreamPartition().getScopedPartitionUri(), config);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -54,7 +54,7 @@ public class PartitionedStateRandomRoutingStreamlet extends ByteStreamlet implem
 
     @Override
     public InputStream handlePreGet(StreamPartition streamPartition, StreamletContext context) {
-        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedObjectName());
+        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedPartitionUri());
         context.getLogger().info("PreGET - Streamlet: {} fetching data from {}.", name, config);
         if (config != null) {
             return context.fetchObjectFromPolicyStorage(config, streamPartition);

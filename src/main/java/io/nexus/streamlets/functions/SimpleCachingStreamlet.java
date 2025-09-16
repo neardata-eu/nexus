@@ -21,7 +21,7 @@ public class SimpleCachingStreamlet extends ByteStreamlet implements DataSourceS
 
     @Override
     protected void processPutBytes(StreamletIO dataStreams, StreamletContext context) {
-        String objectInStorage = STORAGE_DIR + context.getStreamPartition().getScopedObjectName();
+        String objectInStorage = STORAGE_DIR + context.getStreamPartition().getScopedPartitionUri();
         int totalBytesRead = 0;
         try (InputStream inputStream = dataStreams.input();
              OutputStream outputStream = dataStreams.output()) {
@@ -48,7 +48,7 @@ public class SimpleCachingStreamlet extends ByteStreamlet implements DataSourceS
 
     @Override
     public InputStream handlePreGet(StreamPartition streamPartition, StreamletContext context) {
-        String objectInStorage = STORAGE_DIR + streamPartition.getScopedObjectName();
+        String objectInStorage = STORAGE_DIR + streamPartition.getScopedPartitionUri();
         File file = new File(objectInStorage);
         try {
             return file.getAbsoluteFile().exists() ? new BufferedInputStream(new FileInputStream(file)) : null;

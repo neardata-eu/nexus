@@ -1,5 +1,6 @@
 package io.nexus.streamlets;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.nexus.shared.metrics.GaugeMetric;
 import io.nexus.shared.metrics.TimerMetric;
 import io.nexus.streamlets.cluster.ClusterRing;
@@ -46,6 +47,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -215,10 +217,6 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
         long startTime = System.nanoTime();
-        if (StreamNameUtils.getSystemFromChunk(blob.getMetadata().getName()) == null) {
-            logger.info("Skipping PUT interception for non-log/ledger blob: {}", blob.getMetadata().getName());
-            return (putOptions == null) ? super.putBlob(containerName, blob) : super.putBlob(containerName, blob, putOptions);
-        }
         logger.info("PUT request for {} / {}.", containerName, blob.getMetadata().getName());
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
@@ -260,7 +258,7 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             String nextRoutingEndpoint = getNextRoutingEndpoint(policy, currentRegion, availableHardware, streamPartition);
             // We consider that the interception time up to this point, next phase is mainly transfer and processing.
             StreamletsMetrics.PUT_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
-            if (nextRoutingEndpoint != null) {
+            if (nextRoutingEndpoint != null && !policy.hasDataRoutingStreamlet(currentRegion)) {
                 // 4.1 Route the PUT request to the next Nexus Swarmlet and update the metadata in storage.
                 this.requestManager.forwardPutRequest(nextRoutingEndpoint, containerName, blob, streamletOutputInputStream)
                         .thenCompose(v -> this.requestManager.updateMetadataAsync(containerName,
@@ -307,11 +305,6 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
     @Override
     public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
         long startTime = System.nanoTime();
-        if (StreamNameUtils.getSystemFromChunk(blobName) == null) {
-            logger.info("Skipping GET interception for non-log/ledger blob: {}", blobName);
-            return super.getBlob(containerName, blobName, getOptions);
-        }
-
         logger.info("GET request for {} / {}.", containerName, blobName);
         // 1. Extract the system, scope, and stream for the incoming request and get the policy (if any).
         Policy policy;
@@ -360,8 +353,9 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
             InputStream streamletOutputInputStream = new FastPipedInputStream(streamletOutput);
             FastPipedOutputStream streamletInputOutputStream = new FastPipedOutputStream();
             streamletInput = new FastPipedInputStream(streamletInputOutputStream);
+            List<S3StorageConfig> s3StorageConfigs = this.metadataService.getS3ConfigsForPolicy(policy);
             RequestContext streamletContext = this.contextManager.createRequestStreamletContext(logger, policy,
-                    streamPartition, Collections.emptyList(), this.cachedS3Client);
+                    streamPartition, s3StorageConfigs, this.cachedS3Client);
             // We consider that the interception time up to this point, next phase is mainly transfer and processing.
             StreamletsMetrics.GET_REQUEST_INTERCEPTION_DURATION_TIMER.record(System.nanoTime() - startTime);
             // 4. Start the data transfer asynchronously depending on the pipeline definition. We first check if there
@@ -636,10 +630,12 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         }
     }
 
-    private String getNextRoutingEndpoint(Policy policy, Region currentRegion, Hardware availableHardware, StreamPartition streamPartition) {
+    @VisibleForTesting
+    String getNextRoutingEndpoint(Policy policy, Region currentRegion, Hardware availableHardware, StreamPartition streamPartition) {
         // No need for intra-swarmlet routing, just compute the next inter-swarmlet/inter-region endpoint.
         if (!needsIntraSwarmletRouting(policy, currentRegion, streamPartition)) {
-            return getNextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+            String result = getNextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+            return result;
         }
 
         // Ok, we have a partitioned stateful streamlet pipeline in this region. Let's see if we are at the right
@@ -656,7 +652,8 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         }
         // If we are still not at the right Swarmlet, do inter-swarmlet. If we are at the right Swarmlet and also the right
         // worker instance, just no further routing is needed.
-        return getNextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+        String result = getNextSwarmletRoutingEndpoint(policy, currentRegion, availableHardware);
+        return result;
     }
 
     /**
@@ -707,8 +704,9 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
                 // This Swarmlet can execute the policy in this region.
                 logger.info("This is the terminal pipeline Region ({}), storing data to storage.", currentRegion);
         }
-        return (nextSwarmletEndpoint == null || nextSwarmletEndpoint.endsWith("/")) ?
+        String result = (nextSwarmletEndpoint == null || nextSwarmletEndpoint.endsWith("/")) ?
                 nextSwarmletEndpoint : nextSwarmletEndpoint + "/";
+        return result;
     }
 
     /**
@@ -730,8 +728,9 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
         // necessary hardware for executing the Streamlets, so forward to another Swarmlet in this Region if possible.
         boolean noStreamletsInRegion = policy.getStreamletsForRegion(currentRegion).isEmpty();
         boolean swarmletCanExecuteStreamlets = policy.canSwarmletExecuteStreamlets(currentRegion, availableHardware);
-        return noStreamletsInRegion || swarmletCanExecuteStreamlets ?
+        InterSwarmletRoutingType result = noStreamletsInRegion || swarmletCanExecuteStreamlets ?
                 InterSwarmletRoutingType.INTER_REGION : InterSwarmletRoutingType.INTRA_REGION;
+        return result;
     }
 
     /**
@@ -844,6 +843,16 @@ public class StreamletsInterceptor extends ForwardingBlobStore implements Closea
 
     private static void recordPutMetrics(long startTime, long contentLength) {
         double operationTimeSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0;
+
+        String logLine = String.format("%s, %s%n", System.currentTimeMillis(), operationTimeSeconds);
+        String LOG_FILE_PATH = "/tmp/put-latencies.txt";
+        try (FileWriter writer = new FileWriter(LOG_FILE_PATH, true)) {
+            writer.write(logLine);
+        } catch (IOException e) {
+            // If logging fails, silently continue (don't break routing)
+            System.err.println("Failed to write to routing log file.");
+        }
+
         StreamletsMetrics.PUT_REQUEST_STORAGE_OPERATIONS_COUNTER.incrementCounter();
         double transferSizeMB = (contentLength / (1024.0 * 1024.0));
         StreamletsMetrics.PUT_REQUEST_STORAGE_SIZE_GAUGE.record(transferSizeMB);

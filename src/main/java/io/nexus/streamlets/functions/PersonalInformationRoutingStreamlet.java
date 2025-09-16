@@ -53,7 +53,7 @@ public class PersonalInformationRoutingStreamlet extends ByteStreamlet implement
             logger.info("PUT - Streamlet: {} routing data to {}, PII detected: {}", name, targetConfig, containsPII);
 
             context.routeObjectToPolicyStorage(targetConfig, bufferedData.getData().getReader(), bufferedData.size());
-            this.persistentMap.put(context.getStreamPartition().getScopedObjectName(), targetConfig);
+            this.persistentMap.put(context.getStreamPartition().getScopedPartitionUri(), targetConfig);
 
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -106,7 +106,7 @@ public class PersonalInformationRoutingStreamlet extends ByteStreamlet implement
 
     @Override
     public InputStream handlePreGet(StreamPartition streamPartition, StreamletContext context) {
-        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedObjectName());
+        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedPartitionUri());
         context.getLogger().info("PreGET - Streamlet: {} fetching data from {}.", name, config);
         if (config != null) {
             return context.fetchObjectFromPolicyStorage(config, streamPartition);

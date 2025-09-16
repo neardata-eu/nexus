@@ -12,32 +12,33 @@ public class StreamPartition {
     // Kafka's pattern follows the default pattern, up to three directories, with .log object
     public final static Pattern KAFKA_PARTITION_OBJECT_PATTERN = Pattern
             .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.log)$");
+    public final static Pattern KAFKA_SYSTEM_PARTITION_OBJECT_PATTERN = Pattern
+            .compile("^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+\\.index)$");
 
     public final static Pattern PULSAR_PARTITION_OBJECT_PATTERN = Pattern
             .compile("^([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-([a-zA-Z0-9]+)-ledger-([0-9]+)$");
 
     public static final Pattern PRAVEGA_PARTITION_OBJECT_PATTERN = Pattern.compile(
             "^/(?!_system)([^/]+)/([^/]+)/([0-9]+\\.#epoch[^/]*)$");
+    public static final Pattern PRAVEGA_SYSTEM_PARTITION_OBJECT_PATTERN = Pattern.compile(
+            "^/?(?:_system/)?([^/]+)/([^/]+)/(.*)$");
 
     public final String container;
     public final String scope;
     public final String stream;
     public final String partition;
-    public final String object;
 
-    public StreamPartition(String containerName, String scopeName, String streamName, String partitionName,
-                           String objectName) {
+    public StreamPartition(String containerName, String scopeName, String streamName, String partitionName) {
         this.container = containerName;
         this.scope = scopeName;
         this.stream = streamName;
         this.partition = partitionName;
-        this.object = objectName;
     }
 
     @Override
     public String toString() {
         return "StreamPartitionPojo{" + "container='" + container + '\'' + ", scope='" + scope + '\'' + ", stream='"
-                + stream + '\'' + ", partition='" + partition + '\'' + ", object='" + object + '\'' + '}';
+                + stream + '\'' + ", partition='" + partition + '\'' + '}';
     }
 
     public static StreamPartition getStreamPartitionPojo(String objectPath, String streamingSystem,
@@ -57,8 +58,7 @@ public class StreamPartition {
         Matcher matcher = KAFKA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedKafkaRequestPath);
         if (matcher.matches()) {
 
-            return new StreamPartition(container, matcher.group(1), matcher.group(2),
-                    matcher.group(2), matcher.group(3));
+            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3));
         }
 
         // The object doesn't match the pattern.
@@ -71,8 +71,7 @@ public class StreamPartition {
         if (matcher.matches()) {
             // Since Pulsar does not have a stream/scope identifier, it is expected to have
             // a global Pulsar policy for the time being.
-            return new StreamPartition(container, "pulsar", "pulsar", "0",
-                    fullyQualifiedPulsarRequestPath);
+            return new StreamPartition(container, "pulsar", "0", fullyQualifiedPulsarRequestPath);
         }
 
         // The object doesn't match the pattern.
@@ -82,13 +81,15 @@ public class StreamPartition {
     public static StreamPartition buildStreamPartitionPojoFromPravegaRequestPath(
             String fullyQualifiedPravegaRequestPath, String container) {
         Matcher matcher = PRAVEGA_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPravegaRequestPath);
+        Matcher matcherSystem = PRAVEGA_SYSTEM_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedPravegaRequestPath);
         if (matcher.matches()) {
-
-            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(3));
+            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3));
+        } else if (matcherSystem.matches()) {
+            return new StreamPartition(container, matcherSystem.group(1), matcherSystem.group(2), matcherSystem.group(3));
         }
 
         // The object doesn't match the pattern.
-        throw new MalformedStreamStorageRequestException("Kafka request not matching pattern.");
+        throw new MalformedStreamStorageRequestException("Pravega request not matching pattern.");
     }
 
     public static StreamPartition buildDefaultStreamPartitionPojoFromRequestPath(String fullyQualifiedRequestPath,
@@ -96,7 +97,7 @@ public class StreamPartition {
 
         Matcher matcher = DEFAULT_PARTITION_OBJECT_PATTERN.matcher(fullyQualifiedRequestPath);
         if (matcher.matches()) {
-            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(3));
+            return new StreamPartition(container, matcher.group(1), matcher.group(2), matcher.group(3));
         }
 
         // The object doesn't match the pattern.
@@ -109,10 +110,6 @@ public class StreamPartition {
 
     public String getScopedStreamName() {
         return this.scope + File.separator + this.stream;
-    }
-
-    public String getScopedObjectName() {
-        return this.getScopedPartitionUri() + File.separator + this.object;
     }
 
     public String getContainer() {
@@ -129,9 +126,5 @@ public class StreamPartition {
 
     public String getPartition() {
         return partition;
-    }
-
-    public String getObject() {
-        return object;
     }
 }

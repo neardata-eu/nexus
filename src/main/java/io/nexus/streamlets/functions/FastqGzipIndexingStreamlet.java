@@ -4,240 +4,162 @@ import com.google.common.annotations.VisibleForTesting;
 import io.nexus.streamlets.ByteStreamlet;
 import io.nexus.streamlets.context.StreamletContext;
 import io.nexus.streamlets.utils.StreamletIO;
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream;
+import org.apache.commons.compress.compressors.gzip.GzipParameters;
 
-import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
+import java.util.zip.ZipException;
 
 public class FastqGzipIndexingStreamlet extends ByteStreamlet {
-
-    private static final int PREFIX_LENGTH = 8;
-    private static final String JSON_START = "{\"id";
-    private static final int JSON_START_LENGTH = JSON_START.length();
-    private static final int RECORDS_PER_BLOCK = 100; // JSON records per index block
+    private static final int RECORDS_PER_BLOCK = 100000; // Each FASTQ record is 4 lines
     private static final String GZIP_INDEX_METADATA_TAG = "fastqgzip-index";
+    private static final int GZIP_COMPRESSION_LEVEL = 1;
 
     @Override
     protected void processPutBytes(StreamletIO dataStreams, StreamletContext context) {
-        try (InputStream in = dataStreams.input();
-             OutputStream out = dataStreams.output()) {
-            List<Long> blockOffsets = fastqGzipIndexing(in, out);
-            // Output index
-            String compactIndex = blockOffsets.stream()
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(","));
-            System.err.println(compactIndex);
+        try (
+                BufferedInputStream in = new BufferedInputStream(dataStreams.input(), 64 * 1024);
+                BufferedOutputStream out = new BufferedOutputStream(dataStreams.output(), 64 * 1024)
+        ) {
+            List<Long> blockOffsets = fastqGzipIndexing(in, out, context);
+            String compactIndex = blockOffsets.stream().map(String::valueOf).collect(Collectors.joining(","));
+            context.getLogger().info(compactIndex);
             context.putUserMetadata(GZIP_INDEX_METADATA_TAG, compactIndex);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to compress FASTQ JSON data with fixed prefix", e);
+            throw new RuntimeException("FASTQ GZIP indexing failed", e);
         }
     }
 
-    @VisibleForTesting
-    List<Long> fastqGzipIndexing(InputStream in, OutputStream out) throws IOException {
-        List<Long> blockOffsets = new ArrayList<>();
-        long currentOffset = 0;
-        List<byte[]> currentRecords = new ArrayList<>();
-        int recordCount = 0;
+        @VisibleForTesting
+        List<Long> fastqGzipIndexing(InputStream in, OutputStream out, StreamletContext context) throws IOException {
+            List<Long> blockOffsets = new ArrayList<>();
+            long currentOffset = 0;
 
-        // Step 1: Extract data before `{"id"}` and write to first gzip member
-        byte[] firstGzipMember = findRecordStartingAtId(in);
-        if (firstGzipMember.length > 0) {
-            byte[] compressedFirstMember = gzipCompress(firstGzipMember);
-            out.write(compressedFirstMember);
-            currentOffset += compressedFirstMember.length;
-        }
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in), 64 * 1024);
+            ReusableByteArrayOutputStream blockBuffer = new ReusableByteArrayOutputStream(256 * 1024);
+            String line;
+            int lineCount = 0;
+            int recordCount = 0;
+            boolean foundFirstAt = false;
 
-        // Step 2: Resume normal processing from first complete `{"id"}` record
-        byte[] prefixBuffer = new byte[8];
-        boolean foundFirstValidRecord = false;
-        int b;
+            while ((line = reader.readLine()) != null) {
+                byte[] lineBytes = (line + "\n").getBytes(StandardCharsets.UTF_8);
 
-        while (true) {
-            // Read 8-byte prefix
-            int read = in.readNBytes(prefixBuffer, 0, 8);
-            if (read < 8) break;
+                if (!foundFirstAt) {
+                    if (line.startsWith("@")) {
+                        foundFirstAt = true;
+                        lineCount = 1;
 
-            // Read JSON record
-            ByteArrayOutputStream recordBuffer = new ByteArrayOutputStream();
-            int braceDepth = 0;
-            boolean started = false;
-            boolean insideQuotes = false;
-            boolean escaped = false;
-
-            while ((b = in.read()) != -1) {
-                recordBuffer.write(b);
-
-                if (b == '"' && !escaped) insideQuotes = !insideQuotes;
-                if (!insideQuotes) {
-                    if (b == '{') braceDepth++;
-                    else if (b == '}') braceDepth--;
+                        // compress and write data before first @ (excluding this line)
+                        if (blockBuffer.size() > 0) {
+                            context.getLogger().info("COMPRESSING INITIAL DATA " + currentOffset);
+                            byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
+                            out.write(compressed);
+                            currentOffset += compressed.length;
+                        }
+                        blockBuffer.reset(); // start new block from first @
+                    } else {
+                        blockBuffer.write(lineBytes); // only write non-record header lines before first @
+                        continue;
+                    }
                 }
 
-                escaped = (b == '\\') && !escaped;
+                // At this point, foundFirstAt is true, so always write the line
+                blockBuffer.write(lineBytes);
 
-                if (started && braceDepth == 0) break;
-                if (!started && b == '{') started = true;
+                lineCount++;
+                if (lineCount == 4) {
+                    lineCount = 0;
+                    recordCount++;
+                    if (recordCount % RECORDS_PER_BLOCK == 0) {
+                        context.getLogger().info("CREATING NEW COMPRESSION BLOCK " + recordCount);
+                        long iniTime = System.currentTimeMillis();
+                        byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
+                        context.getLogger().info("COMPRESSION TIME " + (System.currentTimeMillis() - iniTime));
+                        out.write(compressed);
+                        blockOffsets.add(currentOffset);
+                        currentOffset += compressed.length;
+                        blockBuffer.reset();
+                    }
+                }
             }
 
-            if (recordBuffer.size() == 0) break;
-
-            byte[] fullRecord = concatenate(List.of(prefixBuffer, recordBuffer.toByteArray()));
-
-            // Check for first valid record
-            if (!foundFirstValidRecord && containsId(fullRecord)) {
-                foundFirstValidRecord = true;
-            }
-
-            currentRecords.add(fullRecord);
-            recordCount++;
-
-            if (recordCount == RECORDS_PER_BLOCK) {
-                byte[] block = concatenate(currentRecords);
-                byte[] compressed = gzipCompress(block);
-
-                if (foundFirstValidRecord) {
+            if (blockBuffer.size() > 0) {
+                byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
+                out.write(compressed);
+                if (foundFirstAt) {
                     blockOffsets.add(currentOffset);
                 }
-
-                out.write(compressed);
                 currentOffset += compressed.length;
-
-                currentRecords.clear();
-                recordCount = 0;
-            }
-        }
-
-        // Flush remaining records
-        if (!currentRecords.isEmpty()) {
-            byte[] block = concatenate(currentRecords);
-            byte[] compressed = gzipCompress(block);
-
-            if (foundFirstValidRecord) {
-                blockOffsets.add(currentOffset);
             }
 
-            out.write(compressed);
-            currentOffset += compressed.length;
+            out.flush();
+            return blockOffsets;
         }
 
-        return blockOffsets;
-    }
-
-    public byte[] findRecordStartingAtId(InputStream in) throws IOException {
-        final byte[] target = "{\"id\"".getBytes();
-        final int targetLength = target.length;
-
-        byte[] prefixBuffer = new byte[8];  // Stores preceding bytes
-        int prefixIndex = 0;
-
-        ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream();
-        int matchIndex = 0;
-
+    // Reads a line from InputStream, returns number of bytes read or -1 if EOF
+    private int readLine(InputStream in, byte[] buffer) throws IOException {
+        int total = 0;
         int b;
         while ((b = in.read()) != -1) {
-            // Store preceding 8 bytes in circular buffer
-            prefixBuffer[prefixIndex % 8] = (byte) b;
-            prefixIndex++;
-
-            // Match `{"id"` sequence
-            if (b == target[matchIndex]) {
-                matchIndex++;
-                if (matchIndex == targetLength) {
-                    // We found the sequence! Store the preceding 8 bytes
-                    for (int j = 0; j < 8; j++) {
-                        outputBuffer.write(prefixBuffer[(prefixIndex - 8 + j) % 8]);
-                    }
-
-                    // Write `{"id"` itself
-                    outputBuffer.write(target);
-
-                    // Continue reading JSON entry
-                    while ((b = in.read()) != -1) {
-                        outputBuffer.write(b);
-                        if (b == '}') break; // Assume JSON entry ends at '}'
-                    }
-                    return outputBuffer.toByteArray();
-                }
-            } else {
-                matchIndex = (b == target[0]) ? 1 : 0; // Reset match tracking
-            }
+            buffer[total++] = (byte) b;
+            if (b == '\n') break;
+            if (total >= buffer.length) throw new IOException("Line too long");
         }
-
-        return new byte[0]; // Return empty if `{"id"}` not found
+        return total == 0 && b == -1 ? -1 : total;
     }
 
-    // Checks whether the byte array contains a valid start of a JSON record
-    private boolean containsId(byte[] recordBytes) {
-        for (int i = 0; i < recordBytes.length - 5; i++) {
-            if (recordBytes[i] == '{' &&
-                    recordBytes[i + 1] == '"' &&
-                    recordBytes[i + 2] == 'i' &&
-                    recordBytes[i + 3] == 'd' &&
-                    recordBytes[i + 4] == '"') {
-                return true;
-            }
+    static class ReusableByteArrayOutputStream extends ByteArrayOutputStream {
+        public ReusableByteArrayOutputStream(int size) {
+            super(size);
         }
-        return false;
+
+        public byte[] getBuffer() {
+            return this.buf;
+        }
+
+        public int size() {
+            return this.count;
+        }
     }
 
-    private static byte[] gzipCompress(byte[] data) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (GZIPOutputStream gzipOut = new GZIPOutputStream(baos)) {
-            gzipOut.write(data);
+    private static byte[] gzipCompress(byte[] data, int offset, int length) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(length / 2);
+        GzipParameters params = new GzipParameters();
+        params.setCompressionLevel(GZIP_COMPRESSION_LEVEL); // 1–9
+        try (GzipCompressorOutputStream gzip = new GzipCompressorOutputStream(baos, params)) {
+            gzip.write(data, offset, length);
         }
         return baos.toByteArray();
     }
 
-    private static byte[] concatenate(List<byte[]> chunks) {
-        int totalLength = chunks.stream().mapToInt(arr -> arr.length).sum();
-        byte[] result = new byte[totalLength];
-        int pos = 0;
-        for (byte[] chunk : chunks) {
-            System.arraycopy(chunk, 0, result, pos, chunk.length);
-            pos += chunk.length;
-        }
-        return result;
-    }
-
     @Override
     protected void processGetBytes(StreamletIO dataStreams, StreamletContext context) {
-        try (InputStream in = dataStreams.input();
-             OutputStream out = dataStreams.output()) {
-
-            // Iterate over concatenated GZIP members
+        try (
+                BufferedInputStream in = new BufferedInputStream(dataStreams.input(), 64 * 1024);
+                BufferedOutputStream out = new BufferedOutputStream(dataStreams.output(), 64 * 1024)
+        ) {
             while (true) {
-                // Wrap each GZIP block with a GZIPInputStream
-                try (GZIPInputStream gzipIn = new GZIPInputStream(in)) {
+                try (GzipCompressorInputStream gzipIn = new GzipCompressorInputStream(in)) {
                     byte[] buffer = new byte[8192];
                     int len;
                     while ((len = gzipIn.read(buffer)) != -1) {
                         out.write(buffer, 0, len);
                     }
-                } catch (EOFException eof) {
-                    // All GZIP members read
+                } catch (EOFException | ZipException eof) {
                     break;
                 } catch (IOException e) {
-                    // End of stream or bad GZIP — check if it's a valid break
-                    if (in.read() == -1) {
-                        break; // Normal end of stream
-                    } else {
-                        throw new IOException("Unexpected data while decompressing blocks", e);
-                    }
+                    if (in.read() == -1) break;
+                    else throw new IOException("Unexpected stream error", e);
                 }
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to decompress GZIP file for Pravega output", e);
+            throw new RuntimeException("FASTQ decompression failed", e);
         }
     }
 }
-
-
-

@@ -50,7 +50,7 @@ public class CachedS3Client implements Closeable {
                             StreamPartition streamPartition, long contentLength) {
         Blob blob = null;
         try {
-            blob = blobStore.blobBuilder(streamPartition.getScopedObjectName())
+            blob = blobStore.blobBuilder(streamPartition.getScopedPartitionUri())
                     .payload(Payloads.newInputStreamPayload(inputStream))
                     .contentLength(contentLength)
                     .build();
@@ -63,7 +63,7 @@ public class CachedS3Client implements Closeable {
     private InputStream getBlobInputStream(BlobStore blobStore, String containerName, StreamPartition streamPartition) {
         Blob blob = null;
         try {
-            blob = blobStore.getContext().getBlobStore().getBlob(containerName, streamPartition.getScopedObjectName());
+            blob = blobStore.getContext().getBlobStore().getBlob(containerName, streamPartition.getScopedPartitionUri());
             return blob.getPayload().openStream();
         } catch (Exception e) {
             throw new RuntimeException(e);

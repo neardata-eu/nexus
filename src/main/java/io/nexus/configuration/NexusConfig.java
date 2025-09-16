@@ -9,6 +9,7 @@ public class NexusConfig {
 
     private Region region;
     private Hardware hardware;
+    private String swarmletName;
     private int clusterVirtualNodes;
     private int keepaliveInterval;
     private int timeout;
@@ -21,6 +22,7 @@ public class NexusConfig {
         // Swarmlet properties
         this.region = Region.valueOf(config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "region"));
         this.hardware = Hardware.valueOf(config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "hardware"));
+        this.swarmletName = config.getString(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "swarmlet");
         // Cluster properties
         this.clusterVirtualNodes = config.getInt(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "clusterVirtualNodes");
         this.keepaliveInterval = config.getInt(PROPERTY_NAME + PropertiesLoader.SEPARATOR + "keepaliveInterval");
@@ -102,6 +104,10 @@ public class NexusConfig {
 
     public void setTimeout(int timeout) {
         this.timeout = timeout;
+    }
+
+    public String getClusterRingId() {
+        return this.swarmletName + "-" + this.region.name();
     }
 
     @Override

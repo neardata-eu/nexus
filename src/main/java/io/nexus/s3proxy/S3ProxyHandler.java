@@ -2023,7 +2023,7 @@ public class S3ProxyHandler {
             eTag = blobStore.putBlob(containerName, builder.build(), options);
         } catch (Exception e) {
             if (e instanceof ForwardedRequestException) {
-                logger.info("Routing request to another Swarmlet or worker.");
+                logger.info("Routing request to another Swarmlet, worker or storage location: {}.", e.getMessage());
             } else {
                 // Unknown error, send error to the client.
                 logger.error("Policy set for a Stream that cannot be executed with existing Swarmlets.", e);

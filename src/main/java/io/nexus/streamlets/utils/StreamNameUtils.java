@@ -1,8 +1,10 @@
 package io.nexus.streamlets.utils;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import io.nexus.streamlets.state.StatePersistenceType;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.MultipartUpload;
 
@@ -24,6 +26,16 @@ public class StreamNameUtils {
 
     public static final String DEFAULT_STREAM_SEPARATOR = "/";
     public static final String KAFKA_TOPIC_SEPARATOR = "-";
+
+    private static final Map<Pattern, StreamingSystems> PATTERN_MAP = new LinkedHashMap<>();
+    static {
+        PATTERN_MAP.put(StreamPartition.KAFKA_PARTITION_OBJECT_PATTERN, StreamingSystems.KAFKA);
+        PATTERN_MAP.put(StreamPartition.KAFKA_SYSTEM_PARTITION_OBJECT_PATTERN, StreamingSystems.KAFKA);
+        PATTERN_MAP.put(StreamPartition.PULSAR_PARTITION_OBJECT_PATTERN, StreamingSystems.PULSAR);
+        PATTERN_MAP.put(StreamPartition.PRAVEGA_PARTITION_OBJECT_PATTERN, StreamingSystems.PRAVEGA);
+        PATTERN_MAP.put(StreamPartition.PRAVEGA_SYSTEM_PARTITION_OBJECT_PATTERN, StreamingSystems.PRAVEGA);
+        PATTERN_MAP.put(StreamPartition.DEFAULT_PARTITION_OBJECT_PATTERN, StreamingSystems.DEFAULT);
+    }
 
     public enum StreamingSystems {
         KAFKA, PULSAR, PRAVEGA, DEFAULT
@@ -55,23 +67,13 @@ public class StreamNameUtils {
     }
 
     public static StreamingSystems getSystemFromChunk(String chunkName) {
-        Matcher matcher = StreamPartition.KAFKA_PARTITION_OBJECT_PATTERN.matcher(chunkName);
-        if (matcher.matches())
-            return StreamingSystems.KAFKA;
-
-        matcher = StreamPartition.PULSAR_PARTITION_OBJECT_PATTERN.matcher(chunkName);
-        if (matcher.matches())
-            return StreamingSystems.PULSAR;
-
-        matcher = StreamPartition.PRAVEGA_PARTITION_OBJECT_PATTERN.matcher(chunkName);
-        if (matcher.matches())
-            return StreamingSystems.PRAVEGA;
-
-        matcher = StreamPartition.DEFAULT_PARTITION_OBJECT_PATTERN.matcher(chunkName);
-        if (matcher.matches())
-            return StreamingSystems.DEFAULT;
-
-        return null;
+        for (Map.Entry<Pattern, StreamingSystems> entry : PATTERN_MAP.entrySet()) {
+            Matcher matcher = entry.getKey().matcher(chunkName);
+            if (matcher.matches()) {
+                return entry.getValue();
+            }
+        }
+        throw new RuntimeException("Unknown system for chunkname: " + chunkName);
     }
     
     private static String getChunkNameComponent(String chunkName, int index) {

@@ -297,7 +297,7 @@ public class FastqToStreamStreamlet extends ByteStreamlet implements DataSourceS
 
                 @Override
                 public StreamPartition getStreamPartition() {
-                    return new StreamPartition("container", scope, stream, "partition", "object");
+                    return new StreamPartition("container", scope, stream, "partition");
                 }
 
                 @Override

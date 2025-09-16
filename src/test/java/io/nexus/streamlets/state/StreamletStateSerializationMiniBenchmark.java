@@ -12,7 +12,7 @@ public class StreamletStateSerializationMiniBenchmark {
         StreamletStateManager manager = new StreamletStateManager(backend);
 
         SharedPersistentMapTestFunction myFunction = new SharedPersistentMapTestFunction();
-        StreamPartition streamPartition = new StreamPartition("container", "scope", "stream", "partition", "object");
+        StreamPartition streamPartition = new StreamPartition("container", "scope", "stream", "partition");
 
         // Generate a Map of some entries and check the speed of storing and loading
         fillFunctionMap(1000, myFunction);

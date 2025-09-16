@@ -18,10 +18,7 @@ import org.jclouds.io.Payloads;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Closeable;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -134,6 +131,7 @@ public class RequestManager implements Closeable {
             mergedTags.putAll(userMetadata);
             CopyOptions copyOptions = CopyOptions.builder().userMetadata(mergedTags).build();
             logger.info("Saving user metadata as object tags ({}), total tags ({}).", userMetadata.size(), mergedTags.size());
+            // FIXME: At least for Pravega, this thing seems to put double // that make S3 requests to fail
             this.blobStore.copyBlob(containerName, blobName, containerName, blobName, copyOptions);
             // Record metrics.
             long operationTime = System.nanoTime() - startTime;
@@ -183,10 +181,11 @@ public class RequestManager implements Closeable {
         }
     }
     
-    public String buildCuratedTargetUrl(String targetServerUrl, String container, String blobName) {
+    public String buildCuratedTargetUrl(String targetServerUrl, String container, String blobName) throws UnsupportedEncodingException {
         String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ?
                 HTTP_URL_PREFIX + targetServerUrl : targetServerUrl;
-        return curatedTargetURL + container + "/" + blobName;
+        curatedTargetURL += URLEncoder.encode(container, StandardCharsets.UTF_8) + "/" + URLEncoder.encode(blobName, StandardCharsets.UTF_8);
+        return curatedTargetURL;
     }
 
     public HttpResponse doGetRequest(String targetUrl) {

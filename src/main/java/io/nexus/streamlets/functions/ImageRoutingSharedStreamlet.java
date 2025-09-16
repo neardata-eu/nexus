@@ -8,6 +8,7 @@ import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.metadata.S3StorageConfig;
 import io.nexus.streamlets.state.Persistent;
 import io.nexus.streamlets.state.StatePersistenceType;
+import io.nexus.streamlets.utils.AbstractAIModelInference;
 import io.nexus.streamlets.utils.StreamletIO;
 import io.pravega.common.io.ByteBufferOutputStream;
 import org.slf4j.Logger;
@@ -19,7 +20,7 @@ import java.io.OutputStream;
 import java.util.HashMap;
 
 /**
- * Streamlet that stores data in different storages depending on the output of {@link ImageClassificationStreamlet}.
+ * Streamlet that stores data in different storages depending on the output of {@link HumanDetectionEventStreamlet}.
  */
 public class ImageRoutingSharedStreamlet extends ByteStreamlet implements DataSourceStreamlet {
     private final String name;
@@ -28,7 +29,7 @@ public class ImageRoutingSharedStreamlet extends ByteStreamlet implements DataSo
     private static final String LOG_FILE_PATH = "/tmp/image-routing-log.txt";
 
     public ImageRoutingSharedStreamlet() {
-        this.name = "IMAGE_ROUTING";
+        this.name = "IMAGE_ROUTING_SHARED";
     }
 
     @Override
@@ -49,7 +50,7 @@ public class ImageRoutingSharedStreamlet extends ByteStreamlet implements DataSo
             // Log the routing decision to file
             logRoutingToFile(config, logger, bufferedData);
             // Store the location of this chunk.
-            this.persistentMap.put(context.getStreamPartition().getScopedObjectName(), config);
+            this.persistentMap.put(context.getStreamPartition().getScopedPartitionUri(), config);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -66,7 +67,7 @@ public class ImageRoutingSharedStreamlet extends ByteStreamlet implements DataSo
     }
 
     private S3StorageConfig selectStorageConfig(StreamletContext context) {
-        String imageClassifierOutput = context.getUserMetadata(ImageClassificationStreamlet.INFERENCE_KEY);
+        String imageClassifierOutput = context.getUserMetadata(AbstractAIModelInference.INFERENCE_KEY);
         int humansIdentified = imageClassifierOutput != null ? Integer.parseInt(imageClassifierOutput) : 0;
         context.getLogger().info("Identified {} humans, routing accordingly", humansIdentified);
         // The default (first) configuration is assumed to be for non-human images, whereas the alternative is for human images.
@@ -75,7 +76,7 @@ public class ImageRoutingSharedStreamlet extends ByteStreamlet implements DataSo
 
     @Override
     public InputStream handlePreGet(StreamPartition streamPartition, StreamletContext context) {
-        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedObjectName());
+        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedPartitionUri());
         context.getLogger().info("PreGET - Streamlet: {} fetching data from {}.", name, config);
         if (config != null) {
             return context.fetchObjectFromPolicyStorage(config, streamPartition);

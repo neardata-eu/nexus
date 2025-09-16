@@ -2,6 +2,10 @@ package io.nexus.streamlets;
 
 import io.nexus.streamlets.context.StreamletContext;
 import io.nexus.streamlets.utils.StreamletIO;
+import org.slf4j.Logger;
+
+import java.io.InputStream;
+import java.io.OutputStream;
 
 import static io.nexus.streamlets.StreamletsMetrics.GET_STREAMLET_EXECUTION_LATENCY_TIMER;
 import static io.nexus.streamlets.StreamletsMetrics.PUT_STREAMLET_EXECUTION_LATENCY_TIMER;
@@ -43,5 +47,23 @@ public abstract class ByteStreamlet implements Streamlet {
         long startTime = System.nanoTime();
         processGetBytes(dataStreams, context);
         GET_STREAMLET_EXECUTION_LATENCY_TIMER.record(System.nanoTime() - startTime);
+    }
+
+    protected int doProcess(InputStream input, OutputStream output, String streamletName, Logger logger) {
+        int totalBytesRead = 0;
+        try {
+            int currentBytesRead = 0;
+            byte[] target = new byte[8192];
+            while ((currentBytesRead = input.read(target)) != -1) {
+                output.write(target, 0, currentBytesRead);
+                totalBytesRead += currentBytesRead;
+            }
+            logger.info("Finished Streamlet " + streamletName + " operations. Processed Bytes: " + totalBytesRead);
+            output.close();
+            return totalBytesRead;
+        } catch (Exception e) {
+            logger.error("Error deserializing the input", e);
+            throw new RuntimeException(e);
+        }
     }
 }

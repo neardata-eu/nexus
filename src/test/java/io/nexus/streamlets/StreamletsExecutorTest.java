@@ -95,12 +95,11 @@ public class StreamletsExecutorTest {
         Logger logger = mock(Logger.class);
         when(mockRequestContext.getLogger()).thenReturn(logger);
         when(mockRequestContext.getPolicy()).thenReturn(mockPolicy);
-        when(streamPartitionPojo.getScopedObjectName()).thenReturn("test/test/stream/test");
+        when(streamPartitionPojo.getScopedPartitionUri()).thenReturn("test/test/stream/test");
         when(streamPartitionPojo.getScopedPartitionUri()).thenReturn("test/test/stream");
         when(streamPartitionPojo.getStream()).thenReturn("stream");
         when(streamPartitionPojo.getScope()).thenReturn("test");
         when(streamPartitionPojo.getContainer()).thenReturn("test");
-        when(streamPartitionPojo.getObject()).thenReturn("test");
 
         // Invoking a PUT interception with the mocked blob
         streamletsExecutor.processRequest(mockPolicy, streamPartitionPojo, inputStream, true,
@@ -121,12 +120,10 @@ public class StreamletsExecutorTest {
         Logger logger = mock(Logger.class);
         when(mockRequestContext.getLogger()).thenReturn(logger);
         when(mockRequestContext.getPolicy()).thenReturn(mockPolicy);
-        when(streamPartitionPojo.getScopedObjectName()).thenReturn("test/test/stream/test");
-        when(streamPartitionPojo.getScopedPartitionUri()).thenReturn("test/test/stream");
+        when(streamPartitionPojo.getScopedPartitionUri()).thenReturn("test/stream/test");
         when(streamPartitionPojo.getStream()).thenReturn("stream");
         when(streamPartitionPojo.getScope()).thenReturn("test");
         when(streamPartitionPojo.getContainer()).thenReturn("test");
-        when(streamPartitionPojo.getObject()).thenReturn("test");
 
         // Invoking a PUT interception with the mocked blob
         streamletsExecutor.processRequest(mockPolicy, streamPartitionPojo, inputStream, false,

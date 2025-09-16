@@ -102,14 +102,14 @@ public class StreamletsExecutor implements Closeable {
         List<Streamlet> streamletsToBeExecuted = buildStreamletPipelineFromPolicy(streamPartition, policy, forwardStream);
         if (streamletsToBeExecuted.isEmpty()) {
             // If there are no streamlets to be executed, forward the blob to the next Swarmlet or final destination.
-            logger.warn("No streamlets to be executed {}", streamPartition.getScopedObjectName());
+            logger.warn("No streamlets to be executed {}", streamPartition.getScopedPartitionUri());
             throw new NoPolicySetException("No Streamlets to execute.");
 
         }
         try {
             CompletableFuture<Long> pipelineFuture = processRequestContent(streamPartition, streamletInput,
                     streamletsToBeExecuted, forwardStream, context, streamletResult);
-            logger.info("Submitted streamlets for processing {} based on {}", streamPartition.getScopedObjectName(), policy);
+            logger.info("Submitted streamlets for processing {} based on {}", streamPartition.getScopedPartitionUri(), policy);
             return pipelineFuture;
         } catch (Exception e) {
             logger.error("Error getting the current blob's metadata.", e);
@@ -143,10 +143,16 @@ public class StreamletsExecutor implements Closeable {
             // Check if the streamlet is to be executed as per the request type and return the list of executable functions.
             return policyPipeline.stream()
                     .filter(s -> shouldExecuteStreamletOnRequest(s.getStreamlet(), forwardStream))
+                    // Load state of Streamlet, if any.
                     .map(s -> {
-                        // Load state of Streamlet, if any.
-                        boolean isCachedStreamlet = this.streamletsCache.exists(streamPartition.getScopedPartitionUri(), s.getStreamlet().getId());
-                        Streamlet streamlet = this.streamletsCache.getOrLoadStreamlet(streamPartition.getScopedPartitionUri(), s.getStreamlet().getId());
+                        // IMPORTANT: Here we are deciding the "granularity" at which we will create new streamlet objects
+                        // based on stream partitions. Currently, we are using the scoped stream name (i.e., "scope/stream")
+                        // for that, but coarser (scope) or finer (scoped partition name) granularities may be also possible.
+                        String streamPartitioningGranularity = streamPartition.getScopedStreamName();
+                        boolean isCachedStreamlet = this.streamletsCache.exists(streamPartitioningGranularity, s.getStreamlet().getId());
+                        logger.info("Building streamlet pipeline: isCachedStreamlet={}, streamPartitioningGranularity={}, streamlet={}",
+                                isCachedStreamlet, streamPartitioningGranularity, s.getStreamlet().getId());
+                        Streamlet streamlet = this.streamletsCache.getOrLoadStreamlet(streamPartitioningGranularity, s.getStreamlet().getId());
                         this.stateManager.loadPersistentFields(streamlet, isCachedStreamlet, streamPartition);
                         return streamlet;
                     })

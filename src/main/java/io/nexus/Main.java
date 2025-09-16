@@ -57,6 +57,8 @@ public class Main {
 
         // Initializing a Redis pool for metadata multithreaded interaction support
         JedisPoolConfig jedisConfig = new JedisPoolConfig();
+        jedisConfig.setTestOnBorrow(true); // validate connection before use
+        jedisConfig.setTestWhileIdle(true);
         final JedisPool jedisPool = new JedisPool(jedisConfig, REDIS_CONFIG.getHost(), REDIS_CONFIG.getPort());
         MetadataChangeNotifier metadataChangeNotifier = new MetadataChangeNotifier(jedisPool);
         metadataChangeNotifier.initializeSubscriber();
@@ -65,7 +67,7 @@ public class Main {
         logger.info("Initialized metadata service");
 
         // Nexus interceptor middleware
-        ClusterRing clusterRing = new ClusterRing(jedisPool, S3PROXY_CONFIG.getEndpoint(),
+        ClusterRing clusterRing = new ClusterRing(jedisPool, NEXUS_CONFIG.getClusterRingId(), URI.create(S3PROXY_CONFIG.getEndpoint()).getPort(),
                 NEXUS_CONFIG.getKeepaliveInterval(), NEXUS_CONFIG.getTimeout(), NEXUS_CONFIG.getClusterVirtualNodes());
         clusterRing.start();
         metadataChangeNotifier.registerCallback(clusterRing);

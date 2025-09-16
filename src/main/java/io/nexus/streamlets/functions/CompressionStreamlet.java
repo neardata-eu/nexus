@@ -24,7 +24,8 @@ public class CompressionStreamlet extends ByteStreamlet {
             while ((bytesRead = input.read(buffer)) != -1) {
                 output.write(buffer, 0, bytesRead);
             }
-            context.getLogger().info("PUT - Executed Streamlet: " + name + ", as part of pipeline: {}", context.getPolicy().getPipeline());
+            context.getLogger().info("PUT - Executed Streamlet: " + name + ", as part of pipeline: {}",
+                    context.getPolicy().getPipeline());
         } catch (IOException e) {
             throw new RuntimeException("Error compressing data", e);
         }
@@ -40,7 +41,8 @@ public class CompressionStreamlet extends ByteStreamlet {
             while ((bytesRead = input.read(buffer)) != -1) {
                 output.write(buffer, 0, bytesRead);
             }
-            context.getLogger().info("GET - Executed Streamlet: " + name + ", as part of pipeline: {}", context.getPolicy().getPipeline());
+            context.getLogger().info("GET - Executed Streamlet: " + name + ", as part of pipeline: {}",
+                    context.getPolicy().getPipeline());
         } catch (IOException e) {
             throw new RuntimeException("Error decompressing data", e);
         }

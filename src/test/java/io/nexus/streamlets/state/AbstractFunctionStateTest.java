@@ -13,7 +13,7 @@ public abstract class AbstractFunctionStateTest {
     public void testSharedDataStructurePersistence() {
         SharedPersistentMapTestFunction myFunction = new SharedPersistentMapTestFunction();
         StreamPartition streamPartition = new StreamPartition("container", "scope", "stream",
-                "partition", "object");
+                "partition");
         // Load persisted state
         this.manager.loadPersistentFields(myFunction, false, streamPartition);
         // Update the map
@@ -23,7 +23,7 @@ public abstract class AbstractFunctionStateTest {
 
         // Start a second function on the same scope/stream but for a different partition
         StreamPartition streamPartition2 = new StreamPartition("container", "scope", "stream",
-                "partition2", "object2");
+                "partition2");
         SharedPersistentMapTestFunction myFunction2 = new SharedPersistentMapTestFunction();
         // Load persisted state
         manager.loadPersistentFields(myFunction2, false, streamPartition2);
@@ -33,7 +33,7 @@ public abstract class AbstractFunctionStateTest {
 
         // Start a third function on another stream
         StreamPartition streamPartition3 = new StreamPartition("container", "scope", "stream1",
-                "partition", "object");
+                "partition");
         SharedPersistentMapTestFunction myFunction3 = new SharedPersistentMapTestFunction();
         // Load persisted state
         manager.loadPersistentFields(myFunction3, false, streamPartition3);
@@ -46,7 +46,7 @@ public abstract class AbstractFunctionStateTest {
     public void testPartitionedDataStructurePersistence() {
         PartitionedPersistentMapTestFunction myFunction = new PartitionedPersistentMapTestFunction();
         StreamPartition streamPartition = new StreamPartition("container", "scope",
-                "stream", "partition", "object");
+                "stream", "partition");
         // Load persisted state
         this.manager.loadPersistentFields(myFunction, false, streamPartition);
         // Update the map
@@ -64,7 +64,7 @@ public abstract class AbstractFunctionStateTest {
 
         // Start a third function on another stream
         StreamPartition streamPartition2 = new StreamPartition("container", "scope", "stream",
-                "partition2", "object");
+                "partition2");
         PartitionedPersistentMapTestFunction myFunction3 = new PartitionedPersistentMapTestFunction();
         // Load persisted state
         manager.loadPersistentFields(myFunction3, false, streamPartition2);

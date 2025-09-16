@@ -8,6 +8,7 @@ import io.nexus.streamlets.metadata.Policy;
 import io.nexus.streamlets.metadata.S3StorageConfig;
 import io.nexus.streamlets.state.Persistent;
 import io.nexus.streamlets.state.StatePersistenceType;
+import io.nexus.streamlets.utils.AbstractAIModelInference;
 import io.nexus.streamlets.utils.StreamletIO;
 import io.pravega.common.io.ByteBufferOutputStream;
 import org.slf4j.Logger;
@@ -19,7 +20,7 @@ import java.io.OutputStream;
 import java.util.HashMap;
 
 /**
- * Streamlet that stores data in different storages depending on the output of {@link ImageClassificationStreamlet}.
+ * Streamlet that stores data in different storages depending on the output of {@link KafkaHumanDetectionEventStreamlet}.
  */
 public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceStreamlet {
     private final String name;
@@ -28,7 +29,7 @@ public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceSt
     private static final String LOG_FILE_PATH = "/tmp/image-routing-log.txt";
 
     public ImageRoutingStreamlet() {
-        this.name = "IMAGE_ROUTING";
+        this.name = "IMAGE_ROUTING_PARTITIONED";
     }
 
     @Override
@@ -41,7 +42,7 @@ public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceSt
              OutputStream pipelineOutput = streamletIO.output();
              ByteBufferOutputStream bufferedData = new ByteBufferOutputStream()) {
             // Buffer data waiting for the previous streamlets to complete.
-            doProcess(inputStream, bufferedData, logger);
+            doProcess(inputStream, bufferedData, name, logger);
             // Based on the INFERENCE_KEY, select the storage config.
             S3StorageConfig config = selectStorageConfig(context);
             logger.info("PUT - Streamlet: {}  routing data to {}.", name, config);
@@ -49,7 +50,7 @@ public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceSt
             // Log the routing decision to file
             logRoutingToFile(config, logger, bufferedData);
             // Store the location of this chunk.
-            this.persistentMap.put(context.getStreamPartition().getScopedObjectName(), config);
+            this.persistentMap.put(context.getStreamPartition().getScopedPartitionUri(), config);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -66,7 +67,7 @@ public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceSt
     }
 
     private S3StorageConfig selectStorageConfig(StreamletContext context) {
-        String imageClassifierOutput = context.getUserMetadata(ImageClassificationStreamlet.INFERENCE_KEY);
+        String imageClassifierOutput = context.getUserMetadata(AbstractAIModelInference.INFERENCE_KEY);
         int humansIdentified = imageClassifierOutput != null ? Integer.parseInt(imageClassifierOutput) : 0;
         context.getLogger().info("Identified {} humans, routing accordingly", humansIdentified);
         // The default (first) configuration is assumed to be for non-human images, whereas the alternative is for human images.
@@ -75,7 +76,7 @@ public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceSt
 
     @Override
     public InputStream handlePreGet(StreamPartition streamPartition, StreamletContext context) {
-        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedObjectName());
+        S3StorageConfig config = this.persistentMap.get(streamPartition.getScopedPartitionUri());
         context.getLogger().info("PreGET - Streamlet: {} fetching data from {}.", name, config);
         if (config != null) {
             return context.fetchObjectFromPolicyStorage(config, streamPartition);
@@ -86,21 +87,5 @@ public class ImageRoutingStreamlet extends ByteStreamlet implements DataSourceSt
     @Override
     public void processGetBytes(StreamletIO streamletIO, StreamletContext context) {
         throw new UnsupportedOperationException("Streamlet " + name + " is not supposed to implement GET processing.");
-    }
-
-    private void doProcess(InputStream input, OutputStream output, Logger logger) {
-        int totalBytesRead = 0;
-        try {
-            int currentBytesRead = 0;
-            byte[] target = new byte[8192];
-            while ((currentBytesRead = input.read(target)) != -1) {
-                output.write(target, 0, currentBytesRead);
-                totalBytesRead += currentBytesRead;
-            }
-            logger.info("Finished Streamlet " + name + " operations. Processed Bytes: " + totalBytesRead);
-            output.close();
-        } catch (Exception e) {
-            logger.error("Error deserializing the input", e);
-        }
     }
 }
