@@ -1,2 +1,4 @@
 rootProject.name = "nexus-java"
 
+include 'lambda-event-fastq'
+
