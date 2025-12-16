@@ -3,6 +3,7 @@ package io.nexus.streamlets.functions;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,6 +13,7 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -30,6 +32,7 @@ import com.google.gson.Gson;
 import software.amazon.awssdk.core.async.AsyncRequestBody;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 public class FastqGzipIndexingLambda implements RequestHandler<S3Event, String> {
@@ -38,7 +41,7 @@ public class FastqGzipIndexingLambda implements RequestHandler<S3Event, String> 
     private static final int GZIP_COMPRESSION_LEVEL = 1;
     private static final String DESTINATION_BUCKET = "nexus-lambda-events-dest";
 
-    protected void processPutBytes(InputStream inputStream, OutputStream outputStream, String objectKey) {
+    protected String processPutBytes(InputStream inputStream, OutputStream outputStream, String objectKey) {
         try 
         (
                 BufferedInputStream in = new BufferedInputStream(inputStream, 64 * 1024);
@@ -49,95 +52,80 @@ public class FastqGzipIndexingLambda implements RequestHandler<S3Event, String> 
             // List<Long> blockOffsets = fastqGzipIndexing(inputStream, outputStream);
             String compactIndex = blockOffsets.stream().map(String::valueOf).collect(Collectors.joining(","));
             getLogger().info(compactIndex);
-            putUserMetadata(GZIP_INDEX_METADATA_TAG, compactIndex, objectKey);
+            return compactIndex;
         } catch (IOException e) {
             throw new RuntimeException("FASTQ GZIP indexing failed", e);
         }
     }
 
-    private void putUserMetadata(String gzipIndexMetadataTag, String compactIndex, String objectKey) {
-        S3Client s3Client = S3Client.builder().build();
-        s3Client.putObjectTagging(builder -> builder
-            .bucket(DESTINATION_BUCKET)
-            .key(objectKey)
-            .tagging(t -> t.tagSet(
-                software.amazon.awssdk.services.s3.model.Tag.builder()
-                    .key(gzipIndexMetadataTag)
-                    .value(compactIndex)
-                    .build()
-            ))
-        );
+    @VisibleForTesting
+    List<Long> fastqGzipIndexing(InputStream in, OutputStream out) throws IOException {
+        List<Long> blockOffsets = new ArrayList<>();
+        long currentOffset = 0;
 
-    }
+        BufferedReader reader = new BufferedReader(new InputStreamReader(in), 64 * 1024);
+        ReusableByteArrayOutputStream blockBuffer = new ReusableByteArrayOutputStream(256 * 1024);
+        String line;
+        int lineCount = 0;
+        int recordCount = 0;
+        boolean foundFirstAt = false;
 
-        @VisibleForTesting
-        List<Long> fastqGzipIndexing(InputStream in, OutputStream out) throws IOException {
-            List<Long> blockOffsets = new ArrayList<>();
-            long currentOffset = 0;
+        while ((line = reader.readLine()) != null) {
+            byte[] lineBytes = (line + "\n").getBytes(StandardCharsets.UTF_8);
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(in), 64 * 1024);
-            ReusableByteArrayOutputStream blockBuffer = new ReusableByteArrayOutputStream(256 * 1024);
-            String line;
-            int lineCount = 0;
-            int recordCount = 0;
-            boolean foundFirstAt = false;
+            // getLogger().info("READ LINE: " + line);
+            if (!foundFirstAt) {
+                if (line.startsWith("@")) {
+                    foundFirstAt = true;
+                    lineCount = 1;
 
-            while ((line = reader.readLine()) != null) {
-                byte[] lineBytes = (line + "\n").getBytes(StandardCharsets.UTF_8);
-
-                // getLogger().info("READ LINE: " + line);
-                if (!foundFirstAt) {
-                    if (line.startsWith("@")) {
-                        foundFirstAt = true;
-                        lineCount = 1;
-
-                        // compress and write data before first @ (excluding this line)
-                        if (blockBuffer.size() > 0) {
-                            getLogger().info("COMPRESSING INITIAL DATA " + currentOffset);
-                            byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
-                            out.write(compressed);
-                            currentOffset += compressed.length;
-                        }
-                        blockBuffer.reset(); // start new block from first @
-                    } else {
-                        blockBuffer.write(lineBytes); // only write non-record header lines before first @
-                        continue;
-                    }
-                }
-
-                // At this point, foundFirstAt is true, so always write the line
-                blockBuffer.write(lineBytes);
-
-                lineCount++;
-                if (lineCount == 4) {
-                    lineCount = 0;
-                    recordCount++;
-                    if (recordCount % RECORDS_PER_BLOCK == 0) {
-                        getLogger().info("CREATING NEW COMPRESSION BLOCK " + recordCount);
-                        long iniTime = System.currentTimeMillis();
+                    // compress and write data before first @ (excluding this line)
+                    if (blockBuffer.size() > 0) {
+                        getLogger().info("COMPRESSING INITIAL DATA " + currentOffset);
                         byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
-                        getLogger().info("COMPRESSION TIME " + (System.currentTimeMillis() - iniTime));
                         out.write(compressed);
-                        System.out.println("Writting compressed data with size" + compressed.length);
-                        blockOffsets.add(currentOffset);
                         currentOffset += compressed.length;
-                        blockBuffer.reset();
                     }
+                    blockBuffer.reset(); // start new block from first @
+                } else {
+                    blockBuffer.write(lineBytes); // only write non-record header lines before first @
+                    continue;
                 }
             }
 
-            if (blockBuffer.size() > 0) {
-                byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
-                out.write(compressed);
-                if (foundFirstAt) {
+            // At this point, foundFirstAt is true, so always write the line
+            blockBuffer.write(lineBytes);
+
+            lineCount++;
+            if (lineCount == 4) {
+                lineCount = 0;
+                recordCount++;
+                if (recordCount % RECORDS_PER_BLOCK == 0) {
+                    getLogger().info("CREATING NEW COMPRESSION BLOCK " + recordCount);
+                    long iniTime = System.currentTimeMillis();
+                    byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
+                    getLogger().info("COMPRESSION TIME " + (System.currentTimeMillis() - iniTime));
+                    out.write(compressed);
+                    System.out.println("Writting compressed data with size" + compressed.length);
                     blockOffsets.add(currentOffset);
+                    currentOffset += compressed.length;
+                    blockBuffer.reset();
                 }
-                currentOffset += compressed.length;
             }
-
-            out.flush();
-            return blockOffsets;
         }
+
+        if (blockBuffer.size() > 0) {
+            byte[] compressed = gzipCompress(blockBuffer.getBuffer(), 0, blockBuffer.size());
+            out.write(compressed);
+            if (foundFirstAt) {
+                blockOffsets.add(currentOffset);
+            }
+            currentOffset += compressed.length;
+        }
+
+        out.flush();
+        return blockOffsets;
+    }
 
     static class ReusableByteArrayOutputStream extends ByteArrayOutputStream {
         public ReusableByteArrayOutputStream(int size) {
@@ -167,40 +155,50 @@ public class FastqGzipIndexingLambda implements RequestHandler<S3Event, String> 
         return org.slf4j.LoggerFactory.getLogger(FastqGzipIndexingLambda.class);
     }
 
-    private String run(String srcBucket, String srcKey) {
+    private Map<String, Long> run(String srcBucket, String srcKey) {
         try {
 
             S3Client s3Client = S3Client.builder().build();
     
             InputStream s3InputStream = s3Client.getObject(builder -> builder.bucket(srcBucket).key(srcKey));
             
-            PipedOutputStream outputStream = new PipedOutputStream();
-            PipedInputStream inputStream = new PipedInputStream(outputStream, 64 * 1024);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             
-            ExecutorService executor = Executors.newFixedThreadPool(4);
-    
-            executor.submit(()->{
-                try {
-                    processPutBytes(s3InputStream, outputStream, srcKey);
-                    outputStream.close();
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
+            String index = processPutBytes(s3InputStream, outputStream, srcKey);
+            outputStream.close();
+            
+            long dataProcessedTimeMs = System.currentTimeMillis();
 
-            S3AsyncClient s3AsyncClientCrt = S3AsyncClient.crtCreate();
-            AsyncRequestBody body = AsyncRequestBody.fromInputStream(inputStream, null, executor);
-            CompletableFuture<PutObjectResponse> responseFuture =
-                s3AsyncClientCrt.putObject(r -> r.bucket(DESTINATION_BUCKET).key(srcKey), body);
-            PutObjectResponse response = responseFuture.join(); // Wait for the response.
+            byte[] dataToUpload = outputStream.toByteArray();
+
+            InputStream inputStream = new ByteArrayInputStream(dataToUpload);
+
+            long dataReadyToUploadTimeMs = System.currentTimeMillis();
+
+            // Prepare metadata
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put(GZIP_INDEX_METADATA_TAG, index);
+
+            PutObjectRequest putRequest = PutObjectRequest.builder()
+                    .bucket(DESTINATION_BUCKET)
+                    .key(srcKey)
+                    .metadata(metadata)
+                    .contentLength((long) dataToUpload.length) 
+                    .build();
+            
+            PutObjectResponse response = s3Client.putObject(putRequest,
+                    software.amazon.awssdk.core.sync.RequestBody.fromInputStream(inputStream, dataToUpload.length));
+
+            long dataUploadedTimeMs = System.currentTimeMillis();
 
             System.out.println("Object " + srcKey + " etag: " + response.eTag());
             System.out.println("Object " + srcKey + " uploaded to bucket " + DESTINATION_BUCKET + ".");
 
-            executor.shutdown();
             s3Client.close();        
         
-            return "OK";
+            return Map.of("dataProcessedTimeMs", dataProcessedTimeMs,
+                          "dataReadyToUploadTimeMs", dataReadyToUploadTimeMs,
+                          "dataUploadedTimeMs", dataUploadedTimeMs);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -213,7 +211,7 @@ public class FastqGzipIndexingLambda implements RequestHandler<S3Event, String> 
         String srcBucket = record.getS3().getBucket().getName();
         String srcKey = record.getS3().getObject().getUrlDecodedKey();
         
-        run(srcBucket, srcKey);        
+        Map<String, Long> timingInfo = run(srcBucket, srcKey);        
         long endLambdaTime = System.currentTimeMillis();
         long lambdaMemoryMb = context.getMemoryLimitInMB();
         long remainingTimeMs = context.getRemainingTimeInMillis();
@@ -223,9 +221,34 @@ public class FastqGzipIndexingLambda implements RequestHandler<S3Event, String> 
                                                "totalLambdaTimeMs", endLambdaTime - startLambdaTime,
                                                "lambdaMemoryMb", lambdaMemoryMb,
                                                "remainingTimeMs", remainingTimeMs);
+
+        Map<String, Object> resultJsonMutable = new HashMap<>(resultJson);
+        resultJsonMutable.putAll(timingInfo);
+        
         Gson gson = new Gson();
-        String resultJsonStr = gson.toJson(resultJson);
+        String resultJsonStr = gson.toJson(resultJsonMutable);
         getLogger().info("Lambda execution details: " + resultJsonStr); 
+
+
+        // Upload resultJsonStr to S3 
+        
+        S3Client s3Client = S3Client.builder().build();
+        byte[] resultJsonBytes = resultJsonStr.getBytes(StandardCharsets.UTF_8);
+        String date = java.time.LocalDateTime.now().toString().replace(":", "-");
+        String resultKey = srcKey + ".timestamps." + date + ".json";
+        InputStream resultInputStream = new ByteArrayInputStream(resultJsonBytes);
+        PutObjectRequest putRequest = PutObjectRequest.builder()
+                .bucket(DESTINATION_BUCKET)
+                .key(resultKey)
+                .contentLength((long) resultJsonBytes.length)
+                .build();
+        PutObjectResponse response = s3Client.putObject(putRequest,
+                software.amazon.awssdk.core.sync.RequestBody.fromInputStream(resultInputStream, resultJsonBytes.length));
+        
+        getLogger().info("Timestamps object " + resultKey + " etag: " + response.eTag());
+        getLogger().info("Timestamps object " + resultKey + " uploaded to bucket " + DESTINATION_BUCKET + ".");
+        s3Client.close();   
+
         return resultJsonStr;
     }
 
