@@ -138,16 +138,6 @@ dependencies {
     implementation 'ai.djl.pytorch:pytorch-model-zoo:0.32.0'
     implementation 'ai.djl:basicdataset:0.32.0'
     implementation 'ai.djl.pytorch:pytorch-native-cu124-precxx11:2.5.1'
-
-    // Libraries for AWS Lambda + S3 Events baseline
-    // https://mvnrepository.com/artifact/com.amazonaws/aws-lambda-java-events
-    implementation 'com.amazonaws:aws-lambda-java-events:3.16.1'
-    // https://mvnrepository.com/artifact/com.amazonaws/aws-lambda-java-core
-    implementation 'com.amazonaws:aws-lambda-java-core:1.4.0'
-    // https://mvnrepository.com/artifact/software.amazon.awssdk/s3
-    implementation 'software.amazon.awssdk:s3:2.40.8'
-    // https://mvnrepository.com/artifact/software.amazon.awssdk.crt/aws-crt
-    implementation 'software.amazon.awssdk.crt:aws-crt:0.41.0'
 }
 
 tasks.named('test') {
@@ -155,7 +145,7 @@ tasks.named('test') {
 }
 
 tasks.named('jar') {
-    enabled = true
+    enabled = false
 }
 
 build {
