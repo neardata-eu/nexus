@@ -151,4 +151,3 @@ tasks.named('jar') {
 build {
     dependsOn shadowJar
 }
-
