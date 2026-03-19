@@ -1,2 +1,5 @@
 rootProject.name = "nexus-java"
 
+include 'benchmarks:lambda-event-fastq'
+project(':benchmarks:lambda-event-fastq').projectDir = file('benchmarks/lambda-event-fastq')
+

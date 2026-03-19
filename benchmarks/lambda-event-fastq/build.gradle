@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+    id 'application'
+    //Using gradleup's shadow to build a single JAR file and reduce dependency conflicts
+    id 'com.gradleup.shadow' version '8.3.4'
+}
+
+group = 'io.nexus'
+version = '1.0.0-lambda'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'ch.qos.logback:logback-classic:1.5.6'
+    implementation 'com.amazonaws:aws-lambda-java-core:1.4.0'
+    implementation 'com.amazonaws:aws-lambda-java-events:3.16.1'
+    implementation 'software.amazon.awssdk:s3:2.40.8'
+    implementation 'software.amazon.awssdk.crt:aws-crt:0.41.0'
+    implementation 'com.google.guava:guava:33.2.0-jre'
+    implementation 'com.google.code.gson:gson:2.13.2'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+application {
+    mainClass = 'io.nexus.streamlets.functions.FastqGzipIndexingLambda'
+}
+
+tasks.named('jar') {
+    enabled = true
+}
