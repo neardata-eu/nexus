@@ -42,40 +42,42 @@ Important variables for this guide are:
   - `JCLOUDS_CREDENTIAL=dev-credential`
   - `NEXUS_REGION=EDGE`
   - `NEXUS_HARDWARE=NONE`
+  - `WEBSERVER_PORT=1234`
 
 ## Application Deployment
 
 1. **Input Nexus Metadata**
    - For simplicity, we can define one Policy with one Streamlet, and one Swarmlet
-   - You can use `EntryPoint.java` CLI tool to enter the following metadata:
+   - You can use `EntryPoint.java` CLI tool to enter the following metadata (use `./gradlew build -Padmincli` then run the JAR `java -jar build/libs/nexus-admin-cli.jar`. Some tests might fail due to stdin, but you may safely proceed with the JAR execution)
+   - **Streamlet Code** *Example*
+     - Name: `io.nexus.streamlets.functions.NoOpStreamlet2` 
+     - Path: Enter absolute path to the streamlet function
+       - `/home/user/nexus_test/nexus-tiered-stream-manager/src/main/java/io/nexus/streamlets/functions/NoOpStreamlet2.java`
    - **Streamlet**
-     - Name: `noop-1`
+     - Name: `io.nexus.streamlets.functions.NoOpStreamlet2`
      - Execute on: `All requests`
      - Locality: `Yes`
+     - Data routing: `No`
      - Hardware: `NONE`
    - **Policy**
      - Name: `P1`
      - System: `system`
-     - Scope: `scope` 
-     - Stream: `stream`
+     - Scope: `*` 
+     - Stream: `*`
      - StreamletID:
-       - Name: `noop-1`
+       - Name: `io.nexus.streamlets.functions.NoOpStreamlet2`
        - Region `EDGE`
        - No streamletArgs required
      - No storage values required 
    - **Swarmlet**
-     - Endpoint: `1`
+     - Endpoint: `http://0.0.0.0:8181/`
      - Region: `EDGE`
      - Hardware: `NONE`
 
 2. **Set Up the Filesystem**
-   - Create the directory:
-        ```bash
-        mkdir -p scope/stream
-        ```
    - Create a test file:
         ```bash
-        echo 123456789 > scope/stream/test.txt
+        echo 123456789 > test.txt
         ```
 3. **Run Nexus**
    - In the root directory, build the project:
@@ -95,7 +97,7 @@ Important variables for this guide are:
         ```bash
         curl -X PUT -T "scope/stream/test.txt" http://0.0.0.0:8181/test-metadata/scope/stream/test.txt -v
         ```
-        - Nexus's logs should be displaying that an interception has taken place, alongside the number of bytes being read
+        - Nexus's logs should be displaying that an interception has taken place, alongside the number of bytes being read and the streamlet executed
    - Similarly, you can GET the test file from the created bucket:
         ```bash
         curl http://0.0.0.0:8181/test-metadata/scope/stream/test.txt -v
@@ -103,15 +105,21 @@ Important variables for this guide are:
 
 ## Example Interception Logs
 ```
-10:20:42.012 [S3Proxy-Jetty-111] INFO  i.n.streamlets.StreamletsInterceptor - PUT request for test-metadata / scope/stream/test.txt.
-StreamPartitionPojo{container='test-metadata', scope='test-metadata', stream='scope', partition='stream', object='test.txt'}
-10:20:42.031 [S3Proxy-Jetty-111] INFO  i.n.streamlets.StreamletsExecutor - Creating durable log object.
-10:20:42.032 [S3Proxy-Jetty-111] INFO  i.n.streamlets.StreamletsExecutor - Submitting processing pipeline task for stream partition StreamPartitionPojo{container='test-metadata', scope='test-metadata', stream='scope', partition='stream', object='test.txt'}.
-10:20:42.034 [streamlet-threadpool-1] INFO  i.n.streamlets.StreamletsInterceptor - PUT - Executing Streamlet: NOOP, as part of pipeline: [StreamletExecutionDescriptor{streamlet=Streamlet{id='noop-1', executeOn ='ALL', type='NONE', partitionLocality=Yes}, region=EDGE, arguments=[]}]
-10:20:42.036 [S3Proxy-Jetty-111] INFO  i.n.streamlets.StreamletsExecutor - Submitted streamlets for processing test-metadata/scope/stream/test.txt based on Policy{id='P1', system='system', scope='scope', stream='stream', pipeline=[StreamletExecutionDescriptor{streamlet=Streamlet{id='noop-1', executeOn ='ALL', type='NONE', partitionLocality=Yes}, region=EDGE, arguments=[]}], storage=[]}
-10:20:42.037 [streamlet-threadpool-2] INFO  i.n.streamlets.StreamletsExecutor - Stored and processed 18 bytes from the request input stream.
-10:20:42.037 [streamlet-threadpool-1] INFO  i.n.streamlets.StreamletsInterceptor - Finished Streamlet NOOP operations. Processed Bytes: 18
-10:20:42.038 [S3Proxy-Jetty-111] INFO  i.n.streamlets.StreamletsInterceptor - This is the terminal pipeline Region (EDGE), storing data to storage.
+[S3Proxy-Jetty-147] INFO  i.n.streamlets.StreamletsExecutor - Building streamlet pipeline: isCachedStreamlet=false, streamPartitioningGranularity=scope/stream, streamlet=io.nexus.streamlets.functions.NoOpStreamlet2
+[S3Proxy-Jetty-147] INFO  i.n.streamlets.utils.StreamletsCache - Loading new Streamlet io.nexus.streamlets.functions.NoOpStreamlet2.
+[S3Proxy-Jetty-147] INFO  i.n.streamlets.StreamletsExecutor - Submitting processing pipeline task for stream partition StreamPartitionPojo{container='test-metadata', scope='scope', stream='stream', partition='test.txt'}.
+[streamlet-threadpool-1] INFO  i.n.streamlets.StreamletsInterceptor - Finished Streamlet NOOP2 operations. Processed Bytes: 10
+[streamlet-threadpool-2] INFO  i.n.streamlets.StreamletsExecutor - Stored and processed 10 bytes from the request input stream.
+[S3Proxy-Jetty-147] INFO  i.n.streamlets.StreamletsExecutor - Submitted streamlets for processing scope/stream/test.txt based on Policy{id='P1', system='system', scope='*', stream='*', pipeline=[StreamletExecutionDescriptor{streamlet=Streamlet{id='io.nexus.streamlets.functions.NoOpStreamlet2', executeOn ='ALL', type='NONE', partitionLocality=Yes', transformsContent=No', dataRouting=No}, region=EDGE, arguments=[]}], storage=[]}
+[S3Proxy-Jetty-147] INFO  i.n.streamlets.cluster.ClusterRing - Key 'scope/stream/test.txt' hashes to 3904213556559896169 and maps to node 'W-2LF9K34:8181'
+Hash Ring:
+[812873489580285307, 3166414457833795738) → W-2LF9K34:8181
+[3166414457833795738, 6072890917423799077) → W-2LF9K34:8181
+[6072890917423799077, 7121466252492667343) → W-2LF9K34:8181
+[7121466252492667343, 8432866502399309354) → W-2LF9K34:8181
+[8432866502399309354, MAX] ∪ [0, 812873489580285307) → W-2LF9K34:8181
+
+[S3Proxy-Jetty-147] INFO  i.n.streamlets.StreamletsInterceptor - This is the terminal pipeline Region (EDGE), storing data to storage.
 ```
 
 ## Troubleshooting
