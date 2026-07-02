@@ -1,5 +1,7 @@
-# #!/bin/bash
-# Tests worker success scenario with two Nexus instances
+#!/bin/bash
+# Tests worker crash failure scenario at S2 (CLOUD) - pre-store
+# Expected behavior is that no data is stored while S2 is down
+# Data is then stored after the instance reboots
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -12,7 +14,6 @@ cd "$PROJECT_DIR"
 kill_existing() {
     echo "Removing previous storage.."
     rm /tmp/blobstore/test-metadata/scope/stream/test.txt | true
-
     echo "Checking for existing processes on ports 8181 and 8182..."
     for PORT in 8181 8182; do
         PID=$(lsof -ti :$PORT 2>/dev/null || true)
@@ -46,7 +47,7 @@ populateRedis() {
 populateRedis || { echo "Error while populating Redis"; exit 1; }
 
 cleanup() {
-    echo "\n[Cleanup] Stopping Nexus instances..."
+    echo "[Cleanup] Stopping Nexus instances..."
     kill $PID_CLOUD 2>/dev/null || true
     kill $PID_EDGE 2>/dev/null || true
     wait $PID_CLOUD 2>/dev/null || true
@@ -56,9 +57,9 @@ cleanup() {
 trap cleanup EXIT
 
 echo "============================================"
-echo " Success Scenario Test"
+echo " Failure Test: Worker Crash at S2 (pre-store)"
 
-echo "\n[1/3] Starting EDGE Nexus on port 8181..."
+echo "[1/4] Starting EDGE Nexus on port 8181..."
 S3PROXY_ENDPOINT="http://0.0.0.0:8181" \
 NEXUS_REGION="EDGE" \
 NEXUS_HARDWARE="NONE" \
@@ -74,7 +75,7 @@ echo "  EDGE PID: $PID_EDGE (logs: nexus-edge.log)"
 sleep 15
 echo "============================================"
 
-echo "\n[2/3] Starting CLOUD Nexus on port 8182..."
+echo "[2/4] Starting CLOUD Nexus on port 8182..."
 S3PROXY_ENDPOINT="http://0.0.0.0:8182" \
 NEXUS_REGION="CLOUD" \
 NEXUS_HARDWARE="GPU" \
@@ -87,37 +88,67 @@ WEBSERVER_PORT=1235 \
 PID_CLOUD=$!
 echo "  CLOUD PID: $PID_CLOUD (logs: nexus-cloud.log)"
 
-echo "\n[Wait] Waiting for instances to start..."
+echo "[Wait] Waiting for instances to start..."
 sleep 15
 
 echo "============================================"
 
 curl -X PUT http://0.0.0.0:8181/test-metadata 2>/dev/null || true
 echo "\n Creating bucket..."
-sleep 5
+sleep 2
 
-echo "\n[3/3] Sending PUT request..."
-echo -n "This is a test" | curl -X PUT \
-  -d @- \
+
+echo "  Killing CLOUD instance (PID: $PID_CLOUD)..."
+kill -9 $PID_CLOUD 2>/dev/null || true
+sleep 2
+
+echo "[3/4] Starting PUT request with retries in background..."
+
+echo -n "THIS IS THE S2 CRASH TEST" > /tmp/test_data.txt
+
+curl -X PUT \
+  -T /tmp/test_data.txt \
   http://0.0.0.0:8181/test-metadata/scope/stream/test.txt \
-  --max-time 10 \
-  --retry 5 \
-  --retry-delay 0 \
-  --retry-connrefused
+  --connect-timeout 3 \
+  --retry 10 \
+  --retry-delay 2 \
+  --retry-connrefused \
+  --retry-max-time 60 \
+  -o /tmp/worker_crash_s1_response.txt \
+  -w "/tmp/worker_crash_s1_http_code.txt" \
+  2>&1 &
+CURL_PID=$!
 
-sleep 10
+sleep 3
 
-echo "\n============================================"
+echo "[4/4] Restarting CLOUD to allow curl to succeed..."
+S3PROXY_ENDPOINT="http://0.0.0.0:8182" \
+NEXUS_REGION="CLOUD" \
+NEXUS_HARDWARE="GPU" \
+JCLOUDS_PROVIDER='filesystem' \
+JCLOUDS_FILESYSTEM_BASEDIR="/tmp/blobstore" \
+REDIS_HOST="localhost" \
+REDIS_PORT=6379 \
+WEBSERVER_PORT=1235 \
+./gradlew run > nexus-cloud.log 2>&1 &
+PID_CLOUD=$!
+sleep 15
+
+wait $CURL_PID 2>/dev/null
+
+
+echo "============================================"
 echo " Verification:"
 
 if [ -f "/tmp/blobstore/test-metadata/scope/stream/test.txt" ]; then
-    echo "  Data stored successfully!"
+    echo "  Data stored after S2 recovery and client retry. Verification Complete"
     STORED_CONTENT=$(cat /tmp/blobstore/test-metadata/scope/stream/test.txt 2>/dev/null)
     echo "  Stored content: $STORED_CONTENT"
 else
-    echo "  Data NOT stored - check logs for errors"
+    echo "  Data NOT stored"
 fi
 
-echo "\n Test complete. Check logs:"
+echo " Test complete. Check logs:"
 echo "  CLOUD: nexus-cloud.log"
 echo "  EDGE:  nexus-edge.log"
+
