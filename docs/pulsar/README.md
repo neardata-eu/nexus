@@ -92,10 +92,15 @@ managedLedgerMaxLedgerRolloverTimeMinutes=2 #For automatic offloading every X mi
 3. **Example Nexus Metadata**
    - **IMPORTANT**: Currently, Nexus supports only one policy for Pulsar that should have a scope/stream named `pulsar`
    - As such, you can use `EntryPoint.java` CLI tool to enter the following metadata:
+   - **Streamlet Code** *Example*
+     - Name: `io.nexus.streamlets.functions.NoOpStreamlet2` 
+     - Path: Enter absolute path to the streamlet function
+       - `/home/user/nexus_test/nexus-tiered-stream-manager/src/main/java/io/nexus/streamlets/functions/NoOpStreamlet2.java`
    - **Streamlet**
-     - Name: `noop-1`
+     - Name: `io.nexus.streamlets.functions.NoOpStreamlet2`
      - Execute on: `All requests`
      - Locality: `Yes`
+     - Data routing: `No`
      - Hardware: `NONE`
    - **Policy**
      - Name: `Pulsar`

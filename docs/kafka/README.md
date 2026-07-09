@@ -37,6 +37,7 @@ This guide provides step-by-step instructions to deploy an instance of Nexus, al
   - `REDIS_HOST` to the name of the redis instance
   - `REDIS_PORT` to the Redis service port. `6379` by default.
   - `S3PROXY_ENDPOINT` to be Kafka's 'object storage' endpoint. Nexus will be listening to this endpoint. `http://0.0.0.0:8181` by default.
+  - `WEBSERVER_PORT=1234`
   - `JCLOUDS_PROVIDER=s3`
   - `JCLOUDS_IDENTITY` to the identity of the object storage. For testing purposes, let it be `minioadmin`.
   - `JCLOUDS_CREDENTIAL` to the identity of the object storage. For testing purposes, let it be `minioadmin`.
@@ -82,10 +83,15 @@ This guide provides step-by-step instructions to deploy an instance of Nexus, al
 3. **Example Nexus Metadata**
    - For simplicity, we can define one Policy with one Streamlet, and one Swarmlet
    - You can use `EntryPoint.java` CLI tool to enter the following metadata:
+   - **Streamlet Code** *Example*
+     - Name: `io.nexus.streamlets.functions.NoOpStreamlet2` 
+     - Path: Enter absolute path to the streamlet function
+       - `/home/user/nexus_test/nexus-tiered-stream-manager/src/main/java/io/nexus/streamlets/functions/NoOpStreamlet2.java`
    - **Streamlet**
-     - Name: `noop-1`
+     - Name: `io.nexus.streamlets.functions.NoOpStreamlet2`
      - Execute on: `All requests`
      - Locality: `Yes`
+     - Data routing: `No`
      - Hardware: `NONE`
    - **Policy**
      - Name: `P1 `

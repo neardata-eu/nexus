@@ -29,7 +29,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * Class that contains the logic for managing HTTP request against an S3-compliant server.
+ * Class that contains the logic for managing HTTP request against an
+ * S3-compliant server.
  */
 public class RequestManager implements Closeable {
 
@@ -56,9 +57,10 @@ public class RequestManager implements Closeable {
                     .contentType(uploadState.getBlobMetadata().getContentMetadata().getContentType())
                     .build();
 
-            // The first time that we upload a part, in addition to transferring the data, we have to initiate the PUT.
-            uploadState.setPutRequest(CompletableFuture.runAsync(() ->
-                            this.blobStore.putBlob(uploadState.getContainer(), blob), this.dataTransferExecutor)
+            // The first time that we upload a part, in addition to transferring the data,
+            // we have to initiate the PUT.
+            uploadState.setPutRequest(CompletableFuture
+                    .runAsync(() -> this.blobStore.putBlob(uploadState.getContainer(), blob), this.dataTransferExecutor)
                     .exceptionally(ex -> {
                         // The created PUT may need to be forwarded, which is fine.
                         if (ex.getCause() instanceof ForwardedRequestException) {
@@ -72,20 +74,23 @@ public class RequestManager implements Closeable {
     }
 
     public CompletableFuture<Void> doAsyncGetRequest(String containerName, String blobName, GetOptions getOptions,
-                                                      OutputStream streamletInputOutputStream, RequestContext context) {
+            OutputStream streamletInputOutputStream, RequestContext context) {
         long startTime = System.nanoTime();
-        Blob proxyBlob = (getOptions == null) ? this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName) :
-                this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName, getOptions);
+        Blob proxyBlob = (getOptions == null)
+                ? this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName)
+                : this.blobStore.getContext().getBlobStore().getBlob(containerName, blobName, getOptions);
         if (proxyBlob == null) {
-            //FIXME: In some concurrency situations proxyBlob may be null, need to better handle this case.
+            // FIXME: In some concurrency situations proxyBlob may be null, need to better
+            // handle this case.
             logger.error("Null blob from blobStore, just returning.");
             return CompletableFuture.completedFuture(null);
         }
-        // FIll the context with metadata synchronously to make it available right away to streamlets.
+        // FIll the context with metadata synchronously to make it available right away
+        // to streamlets.
         context.populateUserMetadata(proxyBlob.getMetadata().getUserMetadata());
         // The actual data transfer occurs asynchronously.
         return CompletableFuture.runAsync(() -> {
-            try (InputStream is = proxyBlob.getPayload().openStream()){
+            try (InputStream is = proxyBlob.getPayload().openStream()) {
                 int readBytes;
                 long totalBytesTransferred = 0;
                 byte[] content = new byte[16 * 1024];
@@ -109,7 +114,8 @@ public class RequestManager implements Closeable {
     }
 
     /**
-     * Asynchronously updates only the metadata of a blob without fetching the entire object.
+     * Asynchronously updates only the metadata of a blob without fetching the
+     * entire object.
      *
      * @param containerName The name of the container.
      * @param blobName      The name of the blob.
@@ -130,8 +136,10 @@ public class RequestManager implements Closeable {
             Map<String, String> mergedTags = new HashMap<>(blobMetadata.getUserMetadata());
             mergedTags.putAll(userMetadata);
             CopyOptions copyOptions = CopyOptions.builder().userMetadata(mergedTags).build();
-            logger.info("Saving user metadata as object tags ({}), total tags ({}).", userMetadata.size(), mergedTags.size());
-            // FIXME: At least for Pravega, this thing seems to put double // that make S3 requests to fail
+            logger.info("Saving user metadata as object tags ({}), total tags ({}).", userMetadata.size(),
+                    mergedTags.size());
+            // FIXME: At least for Pravega, this thing seems to put double // that make S3
+            // requests to fail
             this.blobStore.copyBlob(containerName, blobName, containerName, blobName, copyOptions);
             // Record metrics.
             long operationTime = System.nanoTime() - startTime;
@@ -144,12 +152,13 @@ public class RequestManager implements Closeable {
      * Forward a GET request and retrieve the blob.
      *
      * @param targetServerUrl The endpoint to forward the GET request.
-     * @param container The container name.
-     * @param blobName  The blob name to forward.
-     * @return A CompletableFuture representing the operation and the retrieved blob.
+     * @param container       The container name.
+     * @param blobName        The blob name to forward.
+     * @return A CompletableFuture representing the operation and the retrieved
+     *         blob.
      */
     public CompletableFuture<Void> forwardGetRequest(String targetServerUrl, String container, String blobName,
-                                                     OutputStream getContents, RequestContext context) {
+            OutputStream getContents, RequestContext context) {
         long startTime = System.nanoTime();
         try {
             // Construct the target URL
@@ -180,11 +189,13 @@ public class RequestManager implements Closeable {
             throw new RuntimeException("Error while forwarding request", e);
         }
     }
-    
-    public String buildCuratedTargetUrl(String targetServerUrl, String container, String blobName) throws UnsupportedEncodingException {
-        String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ?
-                HTTP_URL_PREFIX + targetServerUrl : targetServerUrl;
-        curatedTargetURL += URLEncoder.encode(container, StandardCharsets.UTF_8) + "/" + URLEncoder.encode(blobName, StandardCharsets.UTF_8);
+
+    public String buildCuratedTargetUrl(String targetServerUrl, String container, String blobName)
+            throws UnsupportedEncodingException {
+        String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ? HTTP_URL_PREFIX + targetServerUrl
+                : targetServerUrl;
+        curatedTargetURL += URLEncoder.encode(container, StandardCharsets.UTF_8) + "/"
+                + URLEncoder.encode(blobName, StandardCharsets.UTF_8).replace("%2F", "/");
         return curatedTargetURL;
     }
 
@@ -207,23 +218,25 @@ public class RequestManager implements Closeable {
     /**
      * Forward PUT requests asynchronously.
      *
-     * @param targetServerUrl    Target server URL.
-     * @param container The container name.
-     * @param blob      The blob to forward.
+     * @param targetServerUrl Target server URL.
+     * @param container       The container name.
+     * @param blob            The blob to forward.
      * @return A CompletableFuture representing the operation.
      */
     public CompletableFuture<Void> forwardPutRequest(String targetServerUrl, String container, Blob blob,
-                                                      InputStream processedContent) {
+            InputStream processedContent) {
         long startTime = System.nanoTime();
         return CompletableFuture.runAsync(() -> {
             try {
                 // Construct the target URL
-                String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX) ?
-                        HTTP_URL_PREFIX + targetServerUrl : targetServerUrl;
+                String curatedTargetURL = !targetServerUrl.startsWith(HTTP_URL_PREFIX)
+                        ? HTTP_URL_PREFIX + targetServerUrl
+                        : targetServerUrl;
                 // Encode the blob name to handle special characters
                 String blobName = blob.getMetadata().getName();
                 String encodedBlobName = URLEncoder.encode(blobName, StandardCharsets.UTF_8)
-                    .replace("+", "%20");
+                        .replace("+", "%20")
+                        .replace("%2F", "/"); 
                 String targetUrl = curatedTargetURL + container + "/" + encodedBlobName;
                 long contentLength = blob.getMetadata().getContentMetadata().getContentLength();
                 logger.info("Started forwarding PUT ({} bytes) to {}.", contentLength, targetUrl);
