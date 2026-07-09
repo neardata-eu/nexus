@@ -1,5 +1,5 @@
 <h1 align="center">
-Nexus: A Data Management Mesh for Tiered Data Stream
+Nexus: A Data Management Mesh for Tiered Data Streams
 </h1>
 
 ## Description
