@@ -32,7 +32,7 @@ Developers can run Nexus locally using the filesystem as the storage backend, an
 
 A step-by-step guide can be [found here](/docs/filesystem/).
 
-Full local test automation scripts can be also [found here](/nexus-tiered-stream-manager/src/test/fail_tests/).
+Full local test automation scripts can be also [found here](/src/test/fail_tests/).
 
 ## Deployment with Apache Kafka
 Nexus can intercept and process Apache Kafka's tiered storage requests to object storage. 
